@@ -140,6 +140,30 @@ html, body {
 .btn-google { background: #4285f4; }
 .btn-bing   { background: #00b4f0; }
 
+.quicklinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.quicklink {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: .8rem;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-card);
+  transition: color .2s, border-color .2s, background .2s;
+  white-space: nowrap;
+}
+.quicklink:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(88,166,255,.08);
+}
+
 /* ============================================================
    Panel (lives inside .sidebar — fills it entirely)
    ============================================================ */
