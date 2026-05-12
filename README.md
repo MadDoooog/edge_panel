@@ -67,12 +67,16 @@ targets:
 
 ### 4. 设置为 Edge 新标签页
 
-**方法 A（推荐）**：使用 [Custom New Tab URL](https://microsoftedge.microsoft.com/addons/detail/custom-new-tab-url/hdmbdioamgdkppmocchpkjobcdodfpkj) 扩展，将 URL 设置为：
-```
-http://127.0.0.1:8765/
-```
+推荐使用 **[New Tab Redirect](https://microsoftedge.microsoft.com/addons/detail/new-tab-redirect/oeijnnfgajlnnfnmhajpljolhblfeehg)** 扩展：
 
-**方法 B**：直接在 Edge 地址栏打开 `http://127.0.0.1:8765/`，然后固定为主页。
+1. 在 Edge 扩展商店安装 **New Tab Redirect**
+2. 点击扩展图标，将重定向 URL 填写为：
+   ```
+   http://127.0.0.1:8765/
+   ```
+3. 保存后，每次打开新标签页即会加载本面板
+
+> 注意：后端服务 (`run.py`) 必须保持运行，否则新标签页无法加载。建议配置为开机自启。
 
 ## 数据刷新
 
