@@ -25,7 +25,8 @@ CRON_CMD="${MIN} ${HOUR} * * * \"${PYTHON}\" \"${COLLECT}\" >> \"${LOG}\" 2>&1"
 CRON_MARK="# edge-panel collect"
 
 # 先删除旧条目（如有），再追加新条目
-(crontab -l 2>/dev/null | grep -v "${CRON_MARK}"; \
+# grep -v 无匹配时退出码为 1，|| true 防止 set -e 中断脚本
+(crontab -l 2>/dev/null | grep -v "${CRON_MARK}" || true; \
  echo "${CRON_CMD}  ${CRON_MARK}") | crontab -
 
 echo "✓ cron 任务已设置：每天 ${HOUR}:${MIN} 自动采集"
