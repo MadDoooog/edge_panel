@@ -1,0 +1,48 @@
+server:
+  host: "127.0.0.1"
+  port: 8765
+
+schedule:
+  interval_minutes: 5
+
+# ══════════════════════════════════════════════════════════════
+# SSH 统一凭证 — 仅需修改此处即可切换所有服务器的账号和密码
+# 各 target 中可单独设置 username/password/key_file 来覆盖默认值
+# ══════════════════════════════════════════════════════════════
+ssh_defaults:
+  username: "your_username"
+  password: "your_password"
+  # key_file: "~/.ssh/id_rsa"  # 可选：使用密钥替代密码认证
+
+# 在每台 SSH 服务器上额外执行 du -sh * 的目录列表
+du_paths:
+  - "/home/your_data_dir"
+
+# ══════════════════════════════════════════════════════════════
+# Cursor 用量查询配置
+# 从浏览器 DevTools → Network 里抓取 Cookie 后填入下方
+# ══════════════════════════════════════════════════════════════
+cursor:
+  team_id: 0000000          # 替换为你的 team_id
+  user_id: 000000000        # 替换为你的 user_id
+  days: 7                   # 查询最近多少天
+  # 从浏览器 DevTools → Network → 任意请求 → Request Headers → cookie 中复制
+  # 会话过期后需重新填写
+  cookies:
+    WorkosCursorSessionToken: "user_XXXX::eyJ..."
+    workos_id: "user_XXXX"
+    team_id: "0000000"
+
+targets:
+  # - name: "本机"
+  #   type: local
+
+  - name: "server-01"
+    type: ssh
+    host: "server-01.example.com"
+    port: 22
+
+  # - name: "server-02"
+  #   type: ssh
+  #   host: "server-02.example.com"
+  #   port: 22

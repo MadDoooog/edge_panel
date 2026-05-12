@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>新标签页</title>
+  <link rel="stylesheet" href="style.css" />
+    <script src="chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Fixed left sidebar: Server Metrics -->
+  <aside class="sidebar">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">服务器状态</span>
+        <span id="last-updated" class="last-updated">加载中…</span>
+        <button id="refresh-btn" class="refresh-btn" title="立即刷新">↻</button>
+      </div>
+      <div id="servers-container" class="servers-container">
+        <div class="loading">正在获取数据…</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main centre area: Clock + Search + Cursor iframe -->
+  <main class="main-area">
+    <div class="clock-wrap">
+      <div id="clock" class="clock"></div>
+      <div id="date" class="date"></div>
+    </div>
+
+    <div class="search-wrap">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="搜索…" autocomplete="off" />
+        <button type="button" id="btn-google" class="btn-google">Google</button>
+        <button type="button" id="btn-bing"   class="btn-bing">Bing</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Cursor Usage Panel — fixed right sidebar -->
+  <div class="cursor-panel">
+    <div class="cursor-panel-header">
+      <img src="https://cursor.com/favicon.ico" class="cursor-favicon" alt="" />
+      <span>Cursor 用量</span>
+      <span id="cursor-range" class="cursor-range"></span>
+      <button id="cursor-refresh" class="refresh-btn" title="刷新">↻</button>
+      <a href="https://cursor.com/cn/dashboard/usage" target="_blank" class="cursor-open-btn" title="在新标签页打开">↗</a>
+    </div>
+    <div class="cursor-chart-wrap">
+      <canvas id="cursor-chart"></canvas>
+      <div class="cursor-empty" id="cursor-empty" hidden>暂无数据或 Cookie 已过期</div>
+    </div>
+    <div class="cursor-stats" id="cursor-stats"></div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
