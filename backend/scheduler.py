@@ -7,6 +7,7 @@ from backend.config import load_config
 from backend.collectors import local as local_collector
 from backend.collectors import ssh as ssh_collector
 from backend import storage
+from backend.logshed import run_probe as run_logshed_probe
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ def run_collection() -> None:
 
 
 def start_scheduler(interval_minutes: int = 5) -> BackgroundScheduler:
+    cfg = load_config()
+    ext = cfg.get("external_services", {})
+    logshed_interval = int(ext.get("logshed_probe_interval_minutes", 1))
+
     scheduler = BackgroundScheduler()
     scheduler.add_job(
         run_collection,
@@ -72,6 +77,18 @@ def start_scheduler(interval_minutes: int = 5) -> BackgroundScheduler:
         replace_existing=True,
         next_run_time=datetime.now(),  # run immediately on start
     )
+    scheduler.add_job(
+        run_logshed_probe,
+        trigger="interval",
+        minutes=logshed_interval,
+        id="probe_logshed",
+        replace_existing=True,
+        next_run_time=datetime.now(),
+    )
     scheduler.start()
-    logger.info("Scheduler started, interval=%d minutes", interval_minutes)
+    logger.info(
+        "Scheduler started, metrics=%d min, logshed=%d min",
+        interval_minutes,
+        logshed_interval,
+    )
     return scheduler

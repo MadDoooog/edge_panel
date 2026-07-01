@@ -33,6 +33,10 @@ cursor:
     workos_id: "user_XXXX"
     team_id: "0000000"
 
+external_services:
+  logshed_url: "http://logshed-search-eu.prod.mypna.com/"
+  logshed_probe_interval_minutes: 1
+
 targets:
   # - name: "本机"
   #   type: local

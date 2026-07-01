@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>新标签页</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=3" />
     <script src="chart.umd.min.js"></script>
 </head>
 <body>
@@ -18,6 +18,27 @@
       </div>
       <div id="servers-container" class="servers-container">
         <div class="loading">正在获取数据…</div>
+      </div>
+    </div>
+
+    <div class="panel logshed-panel">
+      <div class="panel-header">
+        <span class="panel-title">Logshed 状态</span>
+        <span id="logshed-banner" class="logshed-banner">—</span>
+      </div>
+      <div class="logshed-service">
+        <div class="logshed-service-head">
+          <span id="logshed-service-name" class="logshed-service-name">Logshed Search EU</span>
+          <span id="logshed-6h-uptime" class="logshed-uptime-pct">—</span>
+        </div>
+        <div class="logshed-timeline-wrap">
+          <div id="logshed-timeline" class="logshed-timeline"></div>
+          <div id="logshed-timeline-tip" class="logshed-timeline-tip" hidden></div>
+        </div>
+        <div class="logshed-timeline-axis">
+          <span>6h 前</span>
+          <span>现在</span>
+        </div>
       </div>
     </div>
   </aside>
@@ -37,7 +58,8 @@
       </div>
       <div class="quicklinks">
         <a href="http://ec2d-jenkinsmaster-02.mypna.com:8080/job/QA-DataValidation/job/Nav_DataValidation_Test_Refactor_Debug/" target="_blank" class="quicklink">Jenkins DV</a>
-        <a href="https://cygnus.telenav.com/release_matrix/releases/index?version=26m05w1&mo=t" target="_blank" class="quicklink">Cygnus Release</a>
+        <a href="https://cygnus.telenav.com/release_matrix/releases/index?mo=t&region=hkm%252Cisc%252Csea&version=26m06w1" target="_blank" class="quicklink">Cygnus Release</a>
+        <a href="http://logshed-search-eu.prod.mypna.com/logshedSearch/" target="_blank" class="quicklink">Logshed</a>
       </div>
     </div>
 
@@ -59,6 +81,6 @@
     <div class="cursor-stats" id="cursor-stats"></div>
   </div>
 
-  <script src="script.js"></script>
+  <script src="script.js?v=3"></script>
 </body>
 </html>

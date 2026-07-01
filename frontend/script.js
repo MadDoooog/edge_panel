@@ -1,5 +1,6 @@
 const API_URL = "http://127.0.0.1:8765/api/metrics";
 const REFRESH_INTERVAL_MS = 60_000; // auto-refresh every 60 s
+const LOGSHED_HISTORY_API = "http://127.0.0.1:8765/api/logshed-history";
 
 /* ============================================================
    Clock
@@ -30,7 +31,7 @@ updateClock();
    ============================================================ */
 function buildGauge(pct, mountLabel) {
   const p = Math.min(Math.max(pct || 0, 0), 100);
-  const danger   = p >= 70;
+  const danger   = p >= 80;
   const fillHex  = danger ? "#f85149" : "#3fb950";
   const glowRgba = danger ? "rgba(248,81,73,.7)" : "rgba(63,185,80,.5)";
   const dashFill = p === 0 ? "0.1 100" : `${p} 100`;
@@ -53,7 +54,7 @@ function buildGauge(pct, mountLabel) {
       fill="none" stroke="${fillHex}" stroke-width="16" stroke-linecap="round"
       pathLength="100" stroke-dasharray="${dashFill}" filter="url(#${id})"/>
     <line x1="100" y1="22" x2="100" y2="35" stroke="#d29922" stroke-width="2" opacity="0.5"
-      transform="rotate(${-90 + 180 * 0.70} 100 105)"/>
+      transform="rotate(${-90 + 180 * 0.80} 100 105)"/>
     <text x="100" y="90" text-anchor="middle"
       fill="${fillHex}" font-size="30" font-weight="700"
       font-family="ui-monospace,'Cascadia Code',Consolas,monospace">${p.toFixed(0)}%</text>
@@ -187,6 +188,131 @@ fetchMetrics();
 setInterval(fetchMetrics, REFRESH_INTERVAL_MS);
 
 /* ============================================================
+   Logshed reachability (6h timeline)
+   ============================================================ */
+const LOGSHED_GREEN = "#3fb950";
+const LOGSHED_RED   = "#f85149";
+
+let logshedTimelineBuckets = [];
+let logshedTimelineHoverBound = false;
+
+function timelineBucketTooltip(b) {
+  const ok = b.ok ?? 0;
+  const fail = b.fail ?? 0;
+  const total = ok + fail;
+  const label = b.start ?? "";
+  if (total === 0) return `${label}: 无数据`;
+  if (total === 1) return ok ? `${label}: 成功` : `${label}: 失败`;
+  const pct = ((ok / total) * 100).toFixed(1);
+  return `${label}: ${ok}/${total} 成功 (${pct}%)`;
+}
+
+function trimLeadingEmptyBuckets(buckets) {
+  const first = buckets.findIndex(b => (b.total ?? 0) > 0);
+  return first >= 0 ? buckets.slice(first) : buckets;
+}
+
+function bucketColor(b) {
+  const ok = b.ok ?? 0;
+  const fail = b.fail ?? 0;
+  const total = ok + fail;
+  if (total === 0) return "var(--bg-card2)";
+  const pct = (ok / total) * 100;
+  if (pct >= 100) return LOGSHED_GREEN;
+  if (pct <= 0) return LOGSHED_RED;
+  return `color-mix(in srgb, ${LOGSHED_GREEN} ${pct}%, ${LOGSHED_RED})`;
+}
+
+function buildLogshedTimeline(timeline6h) {
+  const buckets = trimLeadingEmptyBuckets(timeline6h?.buckets ?? []);
+  logshedTimelineBuckets = buckets;
+  if (!buckets.length) {
+    return `<div class="logshed-timeline-empty">暂无探测数据</div>`;
+  }
+  const stops = buckets.map((b, i) => {
+    const pct = buckets.length === 1 ? 100 : (i / (buckets.length - 1)) * 100;
+    return `${bucketColor(b)} ${pct}%`;
+  }).join(", ");
+  return `<div class="logshed-timeline-fill" style="background:linear-gradient(to right,${stops})"></div>`;
+}
+
+function bindLogshedTimelineHover() {
+  if (logshedTimelineHoverBound) return;
+  const bar = document.getElementById("logshed-timeline");
+  const tip = document.getElementById("logshed-timeline-tip");
+  if (!bar || !tip) return;
+
+  bar.addEventListener("mousemove", (e) => {
+    const buckets = logshedTimelineBuckets;
+    if (!buckets.length) {
+      tip.hidden = true;
+      return;
+    }
+    const rect = bar.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const idx = Math.min(buckets.length - 1, Math.floor(ratio * buckets.length));
+    const b = buckets[idx];
+    tip.textContent = timelineBucketTooltip(b);
+    tip.hidden = false;
+  });
+
+  bar.addEventListener("mouseleave", () => {
+    tip.hidden = true;
+  });
+
+  logshedTimelineHoverBound = true;
+}
+
+async function fetchLogshedHistory() {
+  const bannerEl    = document.getElementById("logshed-banner");
+  const nameEl      = document.getElementById("logshed-service-name");
+  const uptime6hEl  = document.getElementById("logshed-6h-uptime");
+  const timelineEl  = document.getElementById("logshed-timeline");
+  if (!timelineEl) return;
+
+  try {
+    const resp = await fetch(LOGSHED_HISTORY_API, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+
+    const current = data.current;
+    const timeline6h = data.timeline_6h ?? {};
+
+    if (nameEl) nameEl.textContent = data.name ?? "Logshed";
+
+    const t6Pct = timeline6h.uptime_pct;
+    if (uptime6hEl) {
+      uptime6hEl.textContent = t6Pct != null ? `近6h ${t6Pct}%` : "—";
+    }
+
+    if (bannerEl) {
+      if (!current || current.ok == null) {
+        bannerEl.textContent = "等待探测";
+        bannerEl.className = "logshed-banner";
+      } else if (current.ok) {
+        bannerEl.textContent = "运行正常";
+        bannerEl.className = "logshed-banner ok";
+      } else {
+        bannerEl.textContent = "服务异常";
+        bannerEl.className = "logshed-banner error";
+      }
+    }
+
+    timelineEl.innerHTML = buildLogshedTimeline(timeline6h);
+    bindLogshedTimelineHover();
+  } catch (err) {
+    if (bannerEl) {
+      bannerEl.textContent = "加载失败";
+      bannerEl.className = "logshed-banner error";
+    }
+    timelineEl.innerHTML = "";
+  }
+}
+
+fetchLogshedHistory();
+setInterval(fetchLogshedHistory, REFRESH_INTERVAL_MS);
+
+/* ============================================================
    Cursor Usage Chart
    ============================================================ */
 const CURSOR_API = "http://127.0.0.1:8765/api/cursor-usage";
@@ -279,37 +405,66 @@ async function fetchCursorUsage() {
       <span class="stat-chip"><span class="stat-label">费用</span><span class="stat-cnt">$${dollarTotal}</span></span>
       ${topModels}`;
 
-    // ── Chart ────────────────────────────────────────────────
+    // ── Chart: bars = tokens, line = cost (dual axis) ────────
+    const costUsd = centsArr.map(c => c / 100);
+
     if (cursorChartInst) cursorChartInst.destroy();
     cursorChartInst = new Chart(canvas, {
       type: "bar",
       data: {
         labels,
-        datasets: [{
-          label: "Tokens",
-          data: values,
-          backgroundColor: "rgba(88,166,255,0.65)",
-          borderColor: "rgba(88,166,255,1)",
-          borderWidth: 1,
-          borderRadius: 3,
-        }],
+        datasets: [
+          {
+            type: "bar",
+            label: "Tokens",
+            data: values,
+            yAxisID: "y",
+            backgroundColor: "rgba(88,166,255,0.65)",
+            borderColor: "rgba(88,166,255,1)",
+            borderWidth: 1,
+            borderRadius: 3,
+            order: 2,
+          },
+          {
+            type: "line",
+            label: "费用 ($)",
+            data: costUsd,
+            yAxisID: "y1",
+            borderColor: "rgba(240,136,62,1)",
+            backgroundColor: "rgba(240,136,62,0.15)",
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: "rgba(240,136,62,1)",
+            tension: 0.25,
+            fill: false,
+            order: 1,
+          },
+        ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: true,
+            position: "bottom",
+            labels: {
+              color: "#8b949e",
+              font: { size: 10 },
+              boxWidth: 12,
+              padding: 8,
+            },
+          },
           tooltip: {
             callbacks: {
               title: items => items[0].label,
               label: ctx => {
-                const i = ctx.dataIndex;
-                const tok = values[i];
-                const usd = (centsArr[i] / 100).toFixed(4);
-                return [
-                  ` Tokens: ${tok.toLocaleString()}`,
-                  ` 费用:   $${usd}`,
-                ];
+                if (ctx.datasetIndex === 0) {
+                  return ` Tokens: ${ctx.parsed.y.toLocaleString()}`;
+                }
+                return ` 费用: $${ctx.parsed.y.toFixed(4)}`;
               },
             },
           },
@@ -320,11 +475,22 @@ async function fetchCursorUsage() {
             grid:  { color: "rgba(48,54,61,0.6)" },
           },
           y: {
+            position: "left",
             ticks: {
-              color: "#8b949e", font: { size: 10 },
+              color: "#58a6ff",
+              font: { size: 10 },
               callback: v => v >= 1000 ? (v / 1000).toFixed(0) + "k" : v,
             },
             grid: { color: "rgba(48,54,61,0.6)" },
+          },
+          y1: {
+            position: "right",
+            ticks: {
+              color: "#f0883e",
+              font: { size: 10 },
+              callback: v => "$" + v.toFixed(2),
+            },
+            grid: { drawOnChartArea: false },
           },
         },
       },

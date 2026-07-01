@@ -419,8 +419,8 @@ html, body {
 .cursor-chart-wrap {
   position: relative;
   width: 100%;
-  height: 200px;
-  padding: 8px;
+  height: 220px;
+  padding: 8px 8px 4px;
 }
 
 /* let Chart.js own the canvas size */
@@ -462,4 +462,99 @@ html, body {
 .stat-model { color: var(--text); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stat-cnt   { color: var(--accent); font-family: ui-monospace, monospace; font-weight: 600; }
 
+/* ============================================================
+   Logshed status panel (sidebar) — DeepSeek-style layout
+   ============================================================ */
+.logshed-panel {
+  border-top: 1px solid var(--border);
+}
+
+.logshed-banner {
+  font-size: .72rem;
+  color: var(--text-muted);
+  max-width: 140px;
+  text-align: right;
+  line-height: 1.3;
+}
+
+.logshed-banner.ok { color: var(--accent2); }
+.logshed-banner.error { color: var(--danger); }
+
+.logshed-service {
+  padding: 10px 14px 12px;
+}
+
+.logshed-service-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.logshed-service-name {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.logshed-uptime-pct {
+  font-size: .72rem;
+  color: var(--text-muted);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.logshed-timeline-wrap {
+  position: relative;
+}
+
+.logshed-timeline {
+  display: flex;
+  height: 22px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  cursor: crosshair;
+}
+
+.logshed-timeline-fill {
+  width: 100%;
+  height: 100%;
+}
+
+.logshed-timeline-empty {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .68rem;
+  color: var(--text-muted);
+}
+
+.logshed-timeline-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  font-size: .68rem;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: var(--shadow);
+}
+
+.logshed-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: .62rem;
+  color: var(--text-muted);
+}
 

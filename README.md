@@ -9,7 +9,7 @@
 ```
 edge-panel/
 ├── config.yaml          # 配置：服务器列表、端口、采集间隔
-├── requirements.txt
+├── pyproject.toml       # 依赖定义
 ├── run.py               # 启动入口
 ├── backend/
 │   ├── main.py          # FastAPI 应用 + 生命周期
@@ -31,8 +31,8 @@ edge-panel/
 
 ```bash
 cd edge-panel
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+uv sync
+# 或：python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
 ### 2. 编辑配置
@@ -83,4 +83,37 @@ targets:
 - 后端定时采集：默认每 **5 分钟**（可在 `config.yaml` 中修改 `schedule.interval_minutes`）
 - 前端自动刷新：每 **60 秒** 从 API 拉取最新数据
 - 点击面板右上角 **↻** 按钮可立即刷新
+
+## Autostart & auto-restart (recommended)
+
+This project includes a cron-based autostart option for the backend, plus a simple watchdog that restarts the server if it crashes.
+
+- Install/update the `@reboot` entry:
+
+```bash
+bash setup_autostart.sh
+```
+
+- Logs:
+  - Backend/watchdog log: `data/server.log`
+  - Watchdog PID file: `data/server.pid`
+
+### Debugging note (important)
+
+When autostart is enabled, a crashing backend may be restarted repeatedly. This is useful in production, but can be confusing during debugging.
+
+Recommended approaches:
+
+- Temporarily disable auto-restart while debugging:
+
+```bash
+EDGE_PANEL_AUTORESTART=0 bash server_watchdog.sh
+```
+
+- Or remove the autostart entry:
+
+```bash
+crontab -l | grep "edge-panel server"
+# then edit via: crontab -e
+```
 

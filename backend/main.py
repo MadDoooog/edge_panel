@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -9,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from backend import storage
 from backend.config import load_config
+from backend import logshed
+from backend.scheduler import start_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +21,18 @@ logger = logging.getLogger(__name__)
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
-app = FastAPI(title="Edge Panel API")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    cfg = load_config()
+    interval_minutes = int(cfg.get("schedule", {}).get("interval_minutes", 5))
+    scheduler = start_scheduler(interval_minutes=interval_minutes)
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="Edge Panel API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -88,6 +102,16 @@ async def cursor_usage():
                                 detail=f"cursor.com returned {e.response.status_code}")
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/logshed-status")
+def logshed_status(live: bool = False):
+    return logshed.get_status_response(live=live)
+
+
+@app.get("/api/logshed-history")
+def logshed_history():
+    return logshed.get_history_response()
 
 
 # Serve the frontend at /
