@@ -48,6 +48,9 @@ edge-panel/
 │   ├── storage.py          # data/metrics.json
 │   ├── logshed.py          # Logshed HTTP probe + API helpers
 │   ├── logshed_storage.py  # data/logshed-history.json
+│   ├── feeds_storage.py    # data/feeds-cache.json
+│   ├── bookmarks_storage.py # data/feed-bookmarks.json
+│   ├── feeds/              # Multi-platform feed adapters (Phase 1: zhihu)
 │   ├── config.py           # load_config()
 │   └── collectors/
 │       ├── local.py
@@ -74,6 +77,7 @@ run.py → uvicorn → backend.main:app
 |--------|----------|------------------|------------|
 | `collect_metrics` | `scheduler.run_collection()` | 5 min | `schedule.interval_minutes` |
 | `probe_logshed` | `logshed.run_probe()` | 1 min | `external_services.logshed_probe_interval_minutes` |
+| `fetch_feeds` | `feeds.orchestrator.run_fetch()` | 10 min | `feeds.fetch_interval_minutes` (only if `feeds.platforms` configured) |
 
 Both jobs run **immediately once** on startup (`next_run_time=datetime.now()`), then repeat on interval.
 
@@ -82,6 +86,8 @@ Both jobs run **immediately once** on startup (`next_run_time=datetime.now()`), 
 - `/api/metrics` — every **60s** (+ manual ↻ on server panel)
 - `/api/logshed-history` — every **60s** (updates quicklink dot + Logshed sidebar)
 - `/api/cursor-usage` — on load + manual ↻
+- `/api/cursor-leaderboard` — on load + manual ↻ (7d/30d team rank)
+- `/api/feeds` — page load / tab switch triggers `POST /api/feeds/refresh` then reads result (bookmarks tab reads local bookmarks only)
 
 **Important:** `frontend/script.js` hardcodes `http://127.0.0.1:8765` for all API calls. Changing bind host/port requires updating the frontend constants or introducing a config injection mechanism (not implemented today).
 
@@ -153,9 +159,11 @@ Copy `config.yaml.example` → `config.yaml`. Key sections:
 | `ssh_defaults` | Shared SSH username/password/key for all `type: ssh` targets |
 | `du_paths` | Directories for `du -sh *` on SSH targets |
 | `targets` | List of `local` or `ssh` collection targets |
-| `cursor` | team/user IDs, day range, browser cookies for usage proxy |
+| `cursor` | team/user IDs, `user_email`, day range, browser cookies for usage proxy |
 | `external_services.logshed_url` | Logshed probe URL |
 | `external_services.logshed_probe_interval_minutes` | Probe cadence (default 1) |
+| `feeds.fetch_interval_minutes` | Zhihu feed fetch interval (default 10) |
+| `feeds.platforms.zhihu` | Zhihu cookies (`cookie_string` or `cookies` dict), `enabled` |
 
 Per-target SSH fields override `ssh_defaults`.
 
@@ -165,8 +173,16 @@ Per-target SSH fields override `ssh_defaults`.
 |--------|------|-------------|
 | GET | `/api/metrics` | Contents of `data/metrics.json` |
 | GET | `/api/cursor-usage` | Proxies Cursor dashboard usage API (needs valid cookies) |
+| GET | `/api/cursor-leaderboard` | Team composer-lines rank for 7d and 30d windows |
 | GET | `/api/logshed-status` | Latest cached Logshed probe result; `?live=1` triggers immediate probe |
 | GET | `/api/logshed-history` | Full Logshed history + computed summaries |
+| GET | `/api/feeds` | Cached text feed; `?platform=zhihu`, `?bookmarked=1` |
+| GET | `/api/feeds/status` | Per-platform fetch status |
+| GET | `/api/feeds/items/{item_id}` | Item detail (live fetch if needed) |
+| GET | `/api/feeds/items/{item_id}/comments` | Paginated root comments |
+| POST | `/api/feeds/bookmarks` | Bookmark an item (`{ "item_id": "..." }`) |
+| DELETE | `/api/feeds/bookmarks/{item_id}` | Remove bookmark |
+| POST | `/api/feeds/refresh` | Trigger feed fetch (`?platform=zhihu` optional) |
 
 Static frontend is mounted at `/` **after** API routes are registered — do not reorder in `main.py` without checking route precedence.
 
@@ -176,6 +192,8 @@ Static frontend is mounted at `/` **after** API routes are registered — do not
 |------|--------|---------|
 | `metrics.json` | `storage.save()` | Server metrics snapshot |
 | `logshed-history.json` | `logshed_storage.save()` | Logshed probe history |
+| `feeds-cache.json` | `feeds_storage.save()` | Normalized feed items + platform status |
+| `feed-bookmarks.json` | `bookmarks_storage.save()` | Local bookmarks for later action on source site |
 | `server.log` | watchdog / uvicorn | Operational logs |
 | `server.pid` | watchdog | Watchdog process PID |
 | `collect.log` | optional external cron | If using standalone `collect.py` |
@@ -199,7 +217,8 @@ Probe success rule: HTTP status `200 <= code < 500`. Timeout: 1.5s connect/read.
 |--------|-----------|-------------|
 | Server sidebar | `#servers-container`, `#last-updated`, `#refresh-btn` | `/api/metrics` |
 | Logshed panel | `#logshed-banner`, `#logshed-timeline` | `/api/logshed-history` |
-| Cursor panel | `#cursor-chart`, `#cursor-stats` | `/api/cursor-usage` |
+| Cursor panel | `#cursor-chart`, `#cursor-stats` | `/api/cursor-usage`, `/api/cursor-leaderboard` |
+| Feed reader | `#feed-masonry`, `#feed-detail` | `/api/feeds`, `/api/feeds/items/*` |
 | Search / clock | `#search-input`, `#clock`, `#date` | client-side only |
 
 ## Coding conventions
@@ -235,6 +254,7 @@ bash setup_autostart.sh
 | `set: Illegal option -o pipefail` | Ran script with `sh` instead of `bash`; use `bash setup_autostart.sh` |
 | SSH target shows 采集失败 | Credentials/network; check logs |
 | Cursor chart empty | Expired cookies in `config.yaml` |
+| Feed reader empty / 会话失效 | Expired Zhihu cookies in `feeds.platforms.zhihu` |
 | Logshed all red/timeouts | Network access to `logshed_url` from this host |
 
 ## Related docs

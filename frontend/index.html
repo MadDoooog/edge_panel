@@ -4,8 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>新标签页</title>
-  <link rel="stylesheet" href="style.css?v=3" />
-    <script src="chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@300;400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=12" />
+  <script src="chart.umd.min.js"></script>
 </head>
 <body>
   <!-- Fixed left sidebar: Server Metrics -->
@@ -58,8 +61,45 @@
       </div>
       <div class="quicklinks">
         <a href="http://ec2d-jenkinsmaster-02.mypna.com:8080/job/QA-DataValidation/job/Nav_DataValidation_Test_Refactor_Debug/" target="_blank" class="quicklink">Jenkins DV</a>
-        <a href="https://cygnus.telenav.com/release_matrix/releases/index?mo=t&region=hkm%252Cisc%252Csea&version=26m06w1" target="_blank" class="quicklink">Cygnus Release</a>
+        <a href="https://cygnus.telenav.com/release_matrix/releases/index?mo=t&region=hkm%252Cisc%252Csea&version=26q3" target="_blank" class="quicklink">Cygnus Release</a>
         <a href="http://logshed-search-eu.prod.mypna.com/logshedSearch/" target="_blank" class="quicklink">Logshed</a>
+        <button type="button" id="feed-toggle-btn" class="quicklink quicklink-toggle" aria-pressed="false">阅读</button>
+      </div>
+    </div>
+
+    <section id="feed-panel" class="feed-panel panel" hidden>
+      <div class="panel-header feed-panel-header">
+        <span class="panel-title">阅读</span>
+        <div class="feed-tabs" id="feed-tabs">
+          <button type="button" class="feed-tab active" data-filter="all">全部</button>
+          <button type="button" class="feed-tab" data-filter="zhihu">知乎</button>
+          <button type="button" class="feed-tab" data-filter="bookmarked">收藏</button>
+        </div>
+        <span id="feed-status" class="feed-status">—</span>
+        <button id="feed-refresh" class="refresh-btn" title="刷新">↻</button>
+      </div>
+      <div id="feed-list" class="feed-list">
+        <div class="loading">点击上方「阅读」加载内容</div>
+      </div>
+      <div id="feed-sentinel" class="feed-sentinel" hidden></div>
+    </section>
+
+    <div id="feed-comments-modal" class="feed-comments-modal" hidden>
+      <div class="feed-comments-backdrop"></div>
+      <div class="feed-comments-card" role="dialog" aria-modal="true">
+        <div class="feed-comments-header">
+          <div>
+            <span id="feed-comments-platform" class="feed-platform-tag">知乎</span>
+            <h2 id="feed-comments-title" class="feed-comments-title"></h2>
+          </div>
+          <button type="button" id="feed-comments-close" class="feed-comments-close" title="关闭">×</button>
+        </div>
+        <div class="feed-comments-toolbar">
+          <button type="button" id="feed-comments-bookmark" class="feed-bookmark-btn">☆ 收藏</button>
+          <a id="feed-comments-link" href="#" target="_blank" rel="noopener" class="feed-open-link">在原平台打开 ↗</a>
+        </div>
+        <div id="feed-comments-list" class="feed-comments-list"></div>
+        <button type="button" id="feed-comments-more" class="feed-comments-more" hidden>加载更多评论</button>
       </div>
     </div>
 
@@ -81,6 +121,6 @@
     <div class="cursor-stats" id="cursor-stats"></div>
   </div>
 
-  <script src="script.js?v=3"></script>
+  <script src="script.js?v=16"></script>
 </body>
 </html>

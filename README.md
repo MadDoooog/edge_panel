@@ -57,6 +57,19 @@ targets:
   # 各 target 可单独写 username/password 覆盖 ssh_defaults
 ```
 
+**知乎阅读流（可选）**：在 `config.yaml` 中配置 `feeds.platforms.zhihu.cookies.z_c0` 即可。在已登录知乎的浏览器中打开 DevTools → Network → 任意 `zhihu.com` 请求 → Request Headers → 从 cookie 中复制 `z_c0` 的值。若将来增加点赞/回复等写操作，可能还需 `_xsrf`、`SESSIONID`。
+
+```yaml
+feeds:
+  fetch_interval_minutes: 10
+  max_items_per_platform: 80
+  platforms:
+    zhihu:
+      enabled: true
+      cookies:
+        z_c0: "2|1:0|10:..."
+```
+
 ### 3. 启动后端
 
 ```bash

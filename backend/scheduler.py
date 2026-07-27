@@ -8,6 +8,7 @@ from backend.collectors import local as local_collector
 from backend.collectors import ssh as ssh_collector
 from backend import storage
 from backend.logshed import run_probe as run_logshed_probe
+from backend.feeds.orchestrator import run_fetch as run_feeds_fetch
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ def start_scheduler(interval_minutes: int = 5) -> BackgroundScheduler:
     cfg = load_config()
     ext = cfg.get("external_services", {})
     logshed_interval = int(ext.get("logshed_probe_interval_minutes", 1))
+    feeds_interval = int(cfg.get("feeds", {}).get("fetch_interval_minutes", 10))
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(
@@ -85,10 +87,21 @@ def start_scheduler(interval_minutes: int = 5) -> BackgroundScheduler:
         replace_existing=True,
         next_run_time=datetime.now(),
     )
+    feeds_cfg = cfg.get("feeds", {})
+    if feeds_cfg.get("platforms"):
+        scheduler.add_job(
+            run_feeds_fetch,
+            trigger="interval",
+            minutes=feeds_interval,
+            id="fetch_feeds",
+            replace_existing=True,
+            next_run_time=datetime.now(),
+        )
     scheduler.start()
     logger.info(
-        "Scheduler started, metrics=%d min, logshed=%d min",
+        "Scheduler started, metrics=%d min, logshed=%d min, feeds=%s",
         interval_minutes,
         logshed_interval,
+        f"{feeds_interval} min" if feeds_cfg.get("platforms") else "disabled",
     )
     return scheduler
