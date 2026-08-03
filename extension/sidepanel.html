@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>edge-panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@300;400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <!-- 顶部工具栏：仅保留 阅读 / 设置 -->
+  <header class="topbar">
+    <button type="button" id="feed-toggle-btn" class="quicklink quicklink-toggle" aria-pressed="false">阅读</button>
+    <button type="button" id="open-options" class="quicklink" title="设置">⚙</button>
+  </header>
+
+  <main class="panel-stack">
+    <!-- 1. Cursor 用量 -->
+    <section class="panel cursor-panel">
+      <div class="panel-header">
+        <img src="https://cursor.com/favicon.ico" class="cursor-favicon" alt="" />
+        <span class="panel-title">Cursor 用量</span>
+        <span id="cursor-range" class="cursor-range"></span>
+        <button id="cursor-refresh" class="refresh-btn" title="刷新">↻</button>
+        <a href="https://cursor.com/cn/dashboard/usage" target="_blank" class="cursor-open-btn" title="在新标签页打开">↗</a>
+      </div>
+      <div class="cursor-chart-wrap">
+        <canvas id="cursor-chart"></canvas>
+        <div class="cursor-empty" id="cursor-empty" hidden>暂无数据或 Cookie 已过期</div>
+      </div>
+      <div class="cursor-stats" id="cursor-stats"></div>
+    </section>
+
+    <!-- 2. 服务器（SSH 磁盘） -->
+    <section class="panel servers-panel">
+      <div class="panel-header">
+        <span class="panel-title">服务器状态</span>
+        <span id="last-updated" class="last-updated">加载中…</span>
+        <button id="refresh-btn" class="refresh-btn" title="立即刷新">↻</button>
+      </div>
+      <div id="servers-container" class="servers-container">
+        <div class="loading">正在获取数据…</div>
+      </div>
+    </section>
+
+    <!-- 3. Logshed（单按钮红绿状态） -->
+    <section class="panel logshed-panel">
+      <button type="button" id="logshed-btn" class="logshed-btn" title="点击重新探测">Logshed：探测中…</button>
+    </section>
+
+    <!-- 4. 阅读 -->
+    <section id="feed-panel" class="panel feed-panel" hidden>
+      <div class="panel-header feed-panel-header">
+        <span class="panel-title">阅读</span>
+        <div class="feed-tabs" id="feed-tabs">
+          <button type="button" class="feed-tab active" data-filter="all">全部</button>
+          <button type="button" class="feed-tab" data-filter="zhihu">知乎</button>
+          <button type="button" class="feed-tab" data-filter="bookmarked">收藏</button>
+        </div>
+        <span id="feed-status" class="feed-status">—</span>
+        <button id="feed-refresh" class="refresh-btn" title="刷新">↻</button>
+      </div>
+      <div id="feed-list" class="feed-list">
+        <div class="loading">点击上方「阅读」加载内容</div>
+      </div>
+      <div id="feed-sentinel" class="feed-sentinel" hidden></div>
+    </section>
+  </main>
+
+  <!-- 评论弹层 -->
+  <div id="feed-comments-modal" class="feed-comments-modal" hidden>
+    <div class="feed-comments-backdrop"></div>
+    <div class="feed-comments-card" role="dialog" aria-modal="true">
+      <div class="feed-comments-header">
+        <div>
+          <span id="feed-comments-platform" class="feed-platform-tag">知乎</span>
+          <h2 id="feed-comments-title" class="feed-comments-title"></h2>
+        </div>
+        <button type="button" id="feed-comments-close" class="feed-comments-close" title="关闭">×</button>
+      </div>
+      <div class="feed-comments-toolbar">
+        <button type="button" id="feed-comments-bookmark" class="feed-bookmark-btn">☆ 收藏</button>
+        <a id="feed-comments-link" href="#" target="_blank" rel="noopener" class="feed-open-link">在原平台打开 ↗</a>
+      </div>
+      <div id="feed-comments-list" class="feed-comments-list"></div>
+      <button type="button" id="feed-comments-more" class="feed-comments-more" hidden>加载更多评论</button>
+    </div>
+  </div>
+
+  <script src="chart.umd.min.js"></script>
+  <script src="cookies.js"></script>
+  <script src="metrics.js"></script>
+  <script src="logshed.js"></script>
+  <script src="cursor.js"></script>
+  <script src="feeds.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

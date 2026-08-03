@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "edge-panel",
+  "version": "0.2.0",
+  "description": "浏览器侧边栏面板 — Cursor 用量 / 服务器磁盘 / Logshed / 阅读",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "storage", "cookies", "declarativeNetRequest", "nativeMessaging"],
+  "host_permissions": [
+    "*://cursor.com/*",
+    "*://*.cursor.com/*",
+    "*://*.zhihu.com/*",
+    "http://logshed-search-eu.prod.mypna.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "edge-panel"
+  },
+  "options_page": "options.html",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

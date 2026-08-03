@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>edge-panel 设置</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, "Segoe UI", sans-serif;
+      background: #0d1218;
+      color: #d4dee8;
+      padding: 28px;
+      max-width: 480px;
+    }
+    h1 { font-size: 1.15rem; margin-bottom: 20px; color: #4ee8c5; }
+    h2 { font-size: 0.85rem; margin: 18px 0 8px; color: #7a8f9e; letter-spacing: 0.05em; }
+    label { display: block; font-size: 0.8rem; color: #7a8f9e; margin-bottom: 10px; }
+    input {
+      width: 100%;
+      margin-top: 4px;
+      padding: 7px 9px;
+      background: #131a22;
+      border: 1px solid rgba(110,150,180,0.28);
+      border-radius: 6px;
+      color: #d4dee8;
+      font-size: 0.85rem;
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    }
+    input:focus { outline: 2px solid #4ee8c5; outline-offset: 1px; }
+    button {
+      margin-top: 16px;
+      padding: 8px 22px;
+      background: #4ee8c5;
+      color: #070a0e;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+    .status { margin-left: 10px; font-size: 0.8rem; color: #3dd68c; }
+    .hint { font-size: 0.75rem; color: #7a8f9e; margin: -4px 0 10px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>edge-panel 设置</h1>
+  <p class="hint">Cookie（Cursor 登录态、知乎 z_c0）会自动读取。<br>
+  Cursor 的 team_id / user_id 也会尝试从 cookie 自动推导，<b>通常只需填 user_email</b>。</p>
+
+  <h2>Cursor 用量 / 排名</h2>
+  <label>team_id
+    <input id="cursor-team-id" type="text" spellcheck="false" />
+  </label>
+  <label>user_id
+    <input id="cursor-user-id" type="text" spellcheck="false" />
+  </label>
+  <label>user_email
+    <input id="cursor-user-email" type="email" spellcheck="false" />
+  </label>
+
+  <h2>Logshed 探测</h2>
+  <label>Logshed URL
+    <input id="logshed-url" type="text" spellcheck="false" />
+  </label>
+
+  <button type="submit" id="save-btn">保存</button>
+  <span id="save-status" class="status"></span>
+
+  <script src="options.js"></script>
+</body>
+</html>
