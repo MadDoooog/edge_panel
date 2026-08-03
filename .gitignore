@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 *.pyo
 uv.lock
+native_host/*.exe
