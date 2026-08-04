@@ -7,6 +7,9 @@ chrome.sidePanel
    侧边栏自动关闭(新标签页仪表盘模式)
    规则: 活动标签不是浏览器新标签页 (edge://newtab / chrome://newtab)
    时自动关闭侧边栏;切回新标签页时保持打开。工具栏图标仍可手动打开。
+   注: windows.onFocusChanged 仅用于「焦点切到另一个浏览器窗口」时按新窗口
+   的活动标签关闭;OS 级失焦(WINDOW_ID_NONE)与同一窗口重新聚焦不关闭面板
+   —— 点击其他软件等操作不应让面板消失。
    注: 新标签页「自动打开」被浏览器手势限制排除 —— chrome.sidePanel.open()
    必须由用户手势触发,而 tabs 生命周期事件不携带手势(实测在
    onCreated/onUpdated/onActivated 中同步调用 open() 仍报 "may only be
@@ -48,9 +51,14 @@ chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
     .catch(() => {});
 });
 
-// 窗口获得焦点
+// 窗口焦点变化：仅当焦点切换到了「另一个浏览器窗口」时按新窗口的活动标签关闭面板。
+// OS 级失焦（点击其他软件 → onFocusChanged(WINDOW_ID_NONE)）与同一窗口重新聚焦
+// （切回原 Edge 窗口）都不关闭面板。
+let lastFocusedWindowId = null;
 chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return; // 失焦，不处理
+  if (windowId === lastFocusedWindowId) return; // 同一窗口重新聚焦，不处理
+  lastFocusedWindowId = windowId;
   chrome.tabs
     .query({ active: true, windowId })
     .then(([tab]) => closeIfNotNewTab(tab, windowId))

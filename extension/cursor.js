@@ -40,13 +40,17 @@ async function getCursorSettings() {
 /**
  * 带 403 自愈的 fetch：403 时向 background 重新触发 refresh-auth
  * （DNR cookie 重注入，sendResponse 在规则更新完成后才返回），随后重试一次。
+ * - cache:"no-store" 避免命中缓存的 403。
+ * - 重试前稍等，让 DNR 规则更新真正落到请求层（updateDynamicRules 的
+ *   Promise resolve 与请求头注入之间存在微小竞态）。
  * 非 403 或重试仍失败则照常抛错。
  */
 async function cursorFetch(url, options) {
-  const doFetch = () => fetch(url, options);
+  const doFetch = () => fetch(url, { ...options, cache: "no-store" });
   const resp = await doFetch();
   if (resp.status === 403) {
     await chrome.runtime.sendMessage({ type: "refresh-auth" }).catch(() => {});
+    await new Promise((r) => setTimeout(r, 250));
     const retry = await doFetch();
     if (!retry.ok) throw new Error(`HTTP ${retry.status}`);
     return retry;

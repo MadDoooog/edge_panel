@@ -213,6 +213,24 @@ let cursorChartInst = null;
 let cursorStatsData = null;
 let cursorLeaderboard = undefined;
 
+// 用量/排名缓存（chrome.storage.local）：面板重开在 TTL 内不重复请求 cursor API，
+// 避免频繁开关面板时反复命中（触发 cursor 风控/限流 → 403）。
+const CURSOR_CACHE_KEY = "cursorCache";
+const CURSOR_CACHE_TTL_MS = 10 * 60 * 1000;
+
+async function loadCursorCache() {
+  const obj = await chrome.storage.local.get(CURSOR_CACHE_KEY);
+  const c = obj[CURSOR_CACHE_KEY];
+  if (!c || !c.usage || Date.now() - (c.ts || 0) > CURSOR_CACHE_TTL_MS) return null;
+  return c;
+}
+
+async function saveCursorCache(usage, leaderboard) {
+  await chrome.storage.local.set({
+    [CURSOR_CACHE_KEY]: { ts: Date.now(), usage, leaderboard: leaderboard === undefined ? null : leaderboard },
+  });
+}
+
 function rankChipsHtml() {
   const chip = (label, value) =>
     `<span class="stat-chip"><span class="stat-label">${label}</span><span class="stat-cnt">${value}</span></span>`;
@@ -268,7 +286,7 @@ async function fetchCursorLeaderboard() {
   renderCursorStatsPanel();
 }
 
-async function fetchCursorUsage() {
+async function fetchCursorUsage(force = false) {
   const canvas = document.getElementById("cursor-chart");
   const emptyEl = document.getElementById("cursor-empty");
   const rangeEl = document.getElementById("cursor-range");
@@ -276,14 +294,24 @@ async function fetchCursorUsage() {
   if (!canvas) return;
 
   btn?.classList.add("spinning");
-  fetchCursorLeaderboard();
 
   try {
-    const data = await fetchCursorUsageApi();
+    // 缓存命中(且未过期)时直接渲染,不再重复请求 cursor API
+    let usage;
+    const cached = force ? null : await loadCursorCache();
+    if (cached && cached.usage) {
+      usage = cached.usage;
+      if (cached.leaderboard !== undefined) cursorLeaderboard = cached.leaderboard;
+    } else {
+      const lbPromise = fetchCursorLeaderboard();
+      usage = await fetchCursorUsageApi();
+      await lbPromise;
+      await saveCursorCache(usage, cursorLeaderboard);
+    }
 
-    const events = Array.isArray(data)
-      ? data
-      : data.usageEventsDisplay ?? data.events ?? data.usageEvents ?? data.data ?? [];
+    const events = Array.isArray(usage)
+      ? usage
+      : usage.usageEventsDisplay ?? usage.events ?? usage.usageEvents ?? usage.data ?? [];
 
     if (!events.length) {
       emptyEl.hidden = false;
@@ -425,7 +453,9 @@ async function fetchCursorUsage() {
     });
   } catch (err) {
     console.error("[cursor-usage] error:", err);
-    emptyEl.textContent = `加载失败: ${escHtml(err.message)}`;
+    emptyEl.textContent = /HTTP 403/.test(err.message)
+      ? "HTTP 403 — 请确认浏览器已登录 cursor.com，然后点 ↻ 重试"
+      : `加载失败: ${escHtml(err.message)}`;
     emptyEl.hidden = false;
     canvas.hidden = true;
   } finally {
@@ -433,8 +463,12 @@ async function fetchCursorUsage() {
   }
 }
 
-document.getElementById("cursor-refresh").addEventListener("click", fetchCursorUsage);
-authReady.then(() => fetchCursorUsage());
+document.getElementById("cursor-refresh").addEventListener("click", () => fetchCursorUsage(true)); // 手动刷新强制
+authReady.then(() => fetchCursorUsage()); // 打开时优先用缓存
+// 面板打开期间周期性刷新 DNR cookie，避免长时间挂着的会话 token 轮换后 403
+setInterval(() => {
+  chrome.runtime.sendMessage({ type: "refresh-auth" }).catch(() => {});
+}, 5 * 60 * 1000);
 
 /* ============================================================
    阅读流（知乎）

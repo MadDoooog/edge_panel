@@ -44,7 +44,7 @@ extension/
 
 ## 说明 / 限制
 
-- 需 **Chrome / Edge 116+**（Side Panel API）。新标签页**自动打开**侧边栏不可行：`chrome.sidePanel.open()` 要求用户手势，而 `tabs` 生命周期事件（新建/切换/更新）不携带手势，会被浏览器拒绝。因此面板需手动点工具栏图标打开；**离开新标签页自动关闭**依赖 `chrome.sidePanel.close()`（**Edge 141+**，2026 年稳定版均已满足），低于 141 时自动关闭静默降级。
+- 需 **Chrome / Edge 116+**（Side Panel API）。新标签页**自动打开**侧边栏不可行：`chrome.sidePanel.open()` 要求用户手势，而 `tabs` 生命周期事件（新建/切换/更新）不携带手势，会被浏览器拒绝。因此面板需手动点工具栏图标打开；**离开新标签页自动关闭**依赖 `chrome.sidePanel.close()`（**Edge 141+**，2026 年稳定版均已满足），低于 141 时自动关闭静默降级。自动关闭只由标签页导航/切换或切到**另一个浏览器窗口**触发——点击其他软件等 OS 级失焦不会关闭面板。
 - **服务器磁盘**只在面板打开时采集，且缓存 **24h 内不重复查询**（点刷新按钮强制）；不做 7×24 后台探测。Logshed 在面板可见期间每 60s 探测一次。
 - 扩展页 `fetch` **无法设置 Cookie / Origin / Referer 等 forbidden headers**，因此由 [background.js](background.js) 的 `declarativeNetRequest` 动态规则在请求发出前注入（cookie 每次面板打开时从 `chrome.cookies` 刷新），fetch 统一用 `credentials:"omit"` 避免重复。若 Cursor / 知乎仍 403，通常是浏览器里未登录对应站点（登录态 cookie 缺失）。
 - 服务器指标经侧边栏页面直接 `chrome.runtime.connectNative` 拉起 Go 宿主（不再走 background 桥）。
