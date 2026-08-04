@@ -14,7 +14,7 @@
 ## 安装
 
 1. 打开 `edge://extensions/` → 开启「开发人员模式」→「加载解压缩的扩展」→ 选 `extension/` 目录
-2. 点工具栏图标 → 右侧打开侧边栏
+2. 点工具栏图标打开右侧侧边栏（相当于新标签页仪表盘）；切到其他页面/标签**自动关闭**。新标签页无法自动弹出（浏览器手势限制，见「说明 / 限制」）。需要 `tabs` 权限读取标签 URL
 3. 首次使用点顶栏「⚙」，填写非 Cookie 的账号标识：
    - **Cursor**：`team_id` / `user_id` / `user_email`（来自 cursor.com 账号设置）
    - **Logshed URL**（默认已填）
@@ -44,8 +44,8 @@ extension/
 
 ## 说明 / 限制
 
-- 需 **Chrome / Edge 116+**（Side Panel API）。
-- 定时刷新只在**侧边栏打开期间**进行（60s）；指标是「打开即查」，不做 7×24 后台探测。
+- 需 **Chrome / Edge 116+**（Side Panel API）。新标签页**自动打开**侧边栏不可行：`chrome.sidePanel.open()` 要求用户手势，而 `tabs` 生命周期事件（新建/切换/更新）不携带手势，会被浏览器拒绝。因此面板需手动点工具栏图标打开；**离开新标签页自动关闭**依赖 `chrome.sidePanel.close()`（**Edge 141+**，2026 年稳定版均已满足），低于 141 时自动关闭静默降级。
+- **服务器磁盘**只在面板打开时采集，且缓存 **24h 内不重复查询**（点刷新按钮强制）；不做 7×24 后台探测。Logshed 在面板可见期间每 60s 探测一次。
 - 扩展页 `fetch` **无法设置 Cookie / Origin / Referer 等 forbidden headers**，因此由 [background.js](background.js) 的 `declarativeNetRequest` 动态规则在请求发出前注入（cookie 每次面板打开时从 `chrome.cookies` 刷新），fetch 统一用 `credentials:"omit"` 避免重复。若 Cursor / 知乎仍 403，通常是浏览器里未登录对应站点（登录态 cookie 缺失）。
 - 服务器指标经侧边栏页面直接 `chrome.runtime.connectNative` 拉起 Go 宿主（不再走 background 桥）。
 - Native 宿主默认读 WSL 侧 `config.yaml`（`\\wsl.localhost\Ubuntu\home\lvwu\py\edge-panel\config.yaml`）。发行版名/路径不同时改 [native_host/config.go](../native_host/config.go) 的 `defaultConfigPath` 重新编译，或在请求里传 `config_path`。

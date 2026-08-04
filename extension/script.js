@@ -6,7 +6,8 @@
    - cursor.js（直连 cursor.com + 自动 cookie）
    - feeds.js（直连知乎 + 本地缓存）
    ============================================================ */
-const REFRESH_INTERVAL_MS = 60_000; // 面板可见期间 60s 自动刷新
+const REFRESH_INTERVAL_MS = 60_000; // Logshed 探测周期(面板可见期间)
+const METRICS_STALE_MS = 24 * 60 * 60 * 1000; // SSH 磁盘缓存 24h 内不重复采集
 
 /* ============================================================
    顶部工具按钮：设置
@@ -161,14 +162,22 @@ async function fetchMetrics() {
   }
 }
 
+/** 缓存是否已过期(距 last_updated 超过 24h)。无缓存视为过期。 */
+function metricsStale(cached) {
+  if (!cached || !cached.last_updated) return true;
+  const t = Date.parse(cached.last_updated);
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t >= METRICS_STALE_MS;
+}
+
 async function initMetrics() {
   const cached = await loadMetricsCache();
-  if (cached) renderMetrics(cached); // 先展示缓存，后台刷新掩盖 SSH 延迟
-  await fetchMetrics();
+  if (cached) renderMetrics(cached); // 先展示缓存
+  // 自动打开面板时: 前一次采集在 24h 内就不再发起 SSH 查询
+  if (metricsStale(cached)) await fetchMetrics();
 }
-document.getElementById("refresh-btn").addEventListener("click", fetchMetrics);
+document.getElementById("refresh-btn").addEventListener("click", fetchMetrics); // 手动刷新始终强制采集
 authReady.then(() => initMetrics());
-setInterval(fetchMetrics, REFRESH_INTERVAL_MS);
 
 /* ============================================================
    Logshed 状态（单按钮红绿显示，不展示历史）
