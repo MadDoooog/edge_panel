@@ -1,10 +1,12 @@
 // Command edge-panel-host — Native Messaging 宿主（SSH-only）。
 //
 // 协议：stdin/stdout 各消息为 4 字节小端长度前缀 + UTF-8 JSON（标准 native messaging）。
-// 请求：{"type":"collect","config_path":"..."}
+// 请求：{"type":"collect","config":{...},"config_path":"..."}
+//       config 为内联采集配置（优先）；config_path 可选，指向磁盘配置文件。
 // 响应：{"last_updated":"...","servers":[...]}，或 {"error":"..."}
 //
-// 只采集 config.yaml 中 type: ssh 的目标磁盘占用（df + du），不做本机采集。
+// 只采集配置中 type: ssh 的目标磁盘占用（df + du），不做本机采集。配置经消息内联
+// 传入（config），或由 config_path 指向的磁盘文件读取。
 package main
 
 import (
@@ -16,9 +18,11 @@ import (
 )
 
 // Request 是来自扩展的 native messaging 消息。
+// Config 为内联采集配置（JSON/YAML 均可，优先级高于 ConfigPath 指向的磁盘文件）。
 type Request struct {
-	Type       string `json:"type"`
-	ConfigPath string `json:"config_path,omitempty"`
+	Type       string          `json:"type"`
+	Config     json.RawMessage `json:"config,omitempty"`
+	ConfigPath string          `json:"config_path,omitempty"`
 }
 
 func main() {
@@ -36,7 +40,7 @@ func main() {
 		var resp any
 		switch req.Type {
 		case "collect":
-			resp = runCollect(req.ConfigPath)
+			resp = runCollect(req.Config, req.ConfigPath)
 		case "ping":
 			resp = map[string]any{"pong": true}
 		default:
@@ -48,9 +52,9 @@ func main() {
 	}
 }
 
-// runCollect 加载配置并采集所有 SSH 目标，返回响应对象（错误以 {"error":...} 形式返回）。
-func runCollect(configPath string) any {
-	cfg, err := loadConfig(configPath)
+// runCollect 构造配置并采集所有 SSH 目标，返回响应对象（错误以 {"error":...} 形式返回）。
+func runCollect(config json.RawMessage, configPath string) any {
+	cfg, err := resolveConfig(config, configPath)
 	if err != nil {
 		return map[string]any{"error": "config: " + err.Error()}
 	}

@@ -10,7 +10,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// DiskInfo 对齐 backend/collectors/ssh.py 的磁盘结构。
+// DiskInfo 定义磁盘结构（df -PBG 输出）。
 type DiskInfo struct {
 	Mountpoint string  `json:"mountpoint"`
 	Device     string  `json:"device"`

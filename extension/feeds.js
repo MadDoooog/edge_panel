@@ -1,12 +1,12 @@
 /* ============================================================
-   feeds.js — 知乎阅读流（移植自 backend/feeds/）
+   feeds.js — 知乎阅读流（直连 zhihu.com）
    直连 zhihu.com（host_permissions 免 CORS；Cookie/Referer 由 background 的
    DNR 动态规则注入，见 background.js updateAuthRules，故 fetch 用 credentials:"omit"）
    归一化、去重缓存、收藏、评论全部在扩展内完成，存 chrome.storage.local。
-   item_id 格式保持后端一致：zhihu:<native_type>:<native_id>
+   item_id 格式：zhihu:<native_type>:<native_id>
    ============================================================ */
 
-/* ── 归一化（移植 normalize.py） ─────────────────────────── */
+/* ── 归一化 ────────────────────────────────────────────── */
 function htmlToText(html) {
   if (!html) return "";
   return String(html)

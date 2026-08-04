@@ -1,6 +1,6 @@
 /* ============================================================
    edge-panel 侧边栏 UI 编排
-   渲染逻辑移植自 frontend/script.js；数据源换成扩展模块：
+   数据源为扩展本地模块：
    - metrics.js（Native Messaging → Go 宿主）
    - logshed.js（直连探测 + 本地历史）
    - cursor.js（直连 cursor.com + 自动 cookie）
@@ -112,18 +112,50 @@ async function fetchMetrics() {
       const lu = document.getElementById("last-updated");
       if (lu) lu.textContent = `缓存 ${cached.last_updated ?? "—"} (${escHtml(err.message)})`;
     } else {
-      const container = document.getElementById("servers-container");
-      if (container) {
-        container.innerHTML = `<div class="loading" style="color:#f85149">无法采集 (${escHtml(
-          err.message
-        )})<br>请确认已运行 <code>bash native_host/setup_native_host.sh</code></div>`;
-      }
-      const lu = document.getElementById("last-updated");
-      if (lu) lu.textContent = "采集失败";
+      renderMetricsError(err);
     }
   } finally {
     btn?.classList.remove("spinning");
   }
+}
+
+/** 服务器面板采集失败时的提示与操作按钮（宿主未安装 / 未配置 SSH 服务器等）。 */
+function renderMetricsError(err) {
+  const container = document.getElementById("servers-container");
+  const lu = document.getElementById("last-updated");
+  if (!container) return;
+  const msg = String(err && err.message ? err.message : err);
+  const actions = [{ act: "open-options", label: "打开设置" }];
+  if (isNativeHostMissing(err)) {
+    actions.unshift({ act: "install-host", label: "下载并安装 Native 宿主" });
+  }
+  const btns = actions
+    .map((a) => `<button type="button" class="metric-action" data-act="${a.act}">${a.label}</button>`)
+    .join("");
+  container.innerHTML = `<div class="loading" style="color:#f85149">${escHtml(msg)}</div><div class="metric-actions">${btns}</div>`;
+  for (const b of container.querySelectorAll(".metric-action")) {
+    b.addEventListener("click", () => {
+      if (b.dataset.act === "open-options") {
+        window.location.href = chrome.runtime.getURL("options.html");
+        return;
+      }
+      if (b.dataset.act === "install-host") {
+        b.textContent = "下载中…";
+        b.disabled = true;
+        installNativeHost()
+          .then(() => {
+            b.textContent = "✓ 已下载";
+            if (lu) lu.textContent = "已下载到 下载/edge-panel-host/，请双击 install-edge-panel-host.bat 完成安装";
+          })
+          .catch((e) => {
+            b.textContent = "下载失败";
+            b.disabled = false;
+            if (lu) lu.textContent = "下载失败: " + escHtml(e.message);
+          });
+      }
+    });
+  }
+  if (lu) lu.textContent = "采集失败";
 }
 
 /** 缓存是否已过期(距 last_updated 超过 24h)。无缓存视为过期。 */

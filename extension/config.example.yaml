@@ -1,0 +1,30 @@
+# config.example.yaml — edge-panel 扩展的 SSH 采集配置模板
+#
+# 两种使用方式：
+#   1. 在设置页直接填写「SSH 服务器」表单后保存（推荐，最简单）。
+#   2. 下载本模板 → 填写 → 在设置页「导入配置」上传（YAML 或 JSON 均可）。
+#
+# 填入后，配置保存在浏览器扩展内（chrome.storage），经 Native Messaging
+# 内联传给 Go 宿主，不再依赖磁盘 config.yaml。
+
+# SSH 统一凭证 — 所有 type: ssh 目标共用的账号和密码
+# 各 target 中可单独设置 username/password/key_file 来覆盖默认值
+ssh_defaults:
+  username: "your_username"
+  password: "your_password"
+  # key_file: "~/.ssh/id_rsa"  # 可选：使用密钥替代密码认证
+
+# 在每台 SSH 服务器上额外执行 du -sh * 的目录列表
+du_paths:
+  - "/home/your_data_dir"
+
+targets:
+  - name: "server-01"
+    type: ssh
+    host: "server-01.example.com"
+    port: 22
+
+  # - name: "server-02"
+  #   type: ssh
+  #   host: "server-02.example.com"
+  #   port: 22

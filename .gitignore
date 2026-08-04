@@ -1,8 +1,4 @@
-.venv/
 config.yaml
-data/
-__pycache__/
-*.pyc
-*.pyo
-uv.lock
+dist/
 native_host/*.exe
+native_host/edge-panel-host

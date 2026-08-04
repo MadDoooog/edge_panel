@@ -1,132 +1,78 @@
 # edge-panel
 
-浏览器新标签页面板，功能：
-1. **定时采集** 本机及远程服务器的磁盘、CPU、内存数据（通过 SSH）
-2. **新标签页** 展示 Google / Bing 搜索栏 + 服务器状态面板
+Edge / Chrome **浏览器侧边栏扩展**（MV3，零构建）：个人仪表盘面板，自上而下 —— **Cursor 用量 → 服务器磁盘（SSH）→ Logshed 可用性 → 知乎阅读流**；顶栏含搜索框与时钟。
+
+数据全部在浏览器内获取，**无需运行任何后端服务**：
+
+- Cursor / 知乎 / Logshed **直连源站**（自动读取浏览器登录 cookie，免 CORS）
+- 服务器磁盘经 **Native Messaging → Go 宿主** 按需 SSH 采集
+
+## 功能
+
+| 区块 | 实现方式 |
+|------|----------|
+| Cursor 用量 + 团队排名 | 直连 cursor.com；team_id / user_id 从 cookie 自动推导，设置里填 user_email 即可 |
+| 服务器磁盘 | Native Messaging → Go 宿主按需 SSH 采集（df + du），缓存 24h 内不重复查询 |
+| Logshed | 红绿状态按钮（点击重新探测） |
+| 阅读（知乎） | 直连 zhihu API + 自动 cookie；归一化、去重缓存、收藏、评论都在扩展内完成 |
+
+## 安装
+
+### 1. 打包
+
+```bash
+bash package.sh
+```
+
+产出 `dist/edge-panel-v0.4.0.zip`（内含扩展全部文件、编译好的 Windows Native 宿主与安装脚本）。
+
+### 2. 加载扩展
+
+1. 解压 zip：`unzip dist/edge-panel-v0.4.0.zip -d dist/`
+2. 打开 `edge://extensions/`（或 `chrome://extensions/`）→ 开启「开发人员模式」
+3. 「加载解压缩的扩展」→ 选解压出的目录
+4. 点工具栏图标打开右侧侧边栏
+
+### 3. 首次设置（⚙）
+
+- **Cursor**：`team_id` / `user_id` / `user_email`（cursor.com 账号设置里找）
+- **SSH 服务器**：服务器面板的数据源（见下）
+- **Logshed URL**（默认已填）
+- Cookie 无需填写 —— 自动读取浏览器登录态（`WorkosCursorSessionToken`、`z_c0`）
+
+### 4. 服务器面板（可选，需要 SSH）
+
+在设置页「SSH 服务器」区块直接填写，或「下载配置模板」→ 填写 →「导入配置」上传（YAML / JSON 均可）。保存后，服务器面板会把配置经 Native Messaging **内联**传给 Go 宿主采集，不再需要磁盘 `config.yaml`。
+
+若服务器区块提示「Native 宿主未安装」，点「下载并安装 Native 宿主」→ 3 个文件下到下载目录 `edge-panel-host/` → 双击 `install-edge-panel-host.bat` 完成注册，然后点 ↻ 重试。
 
 ## 目录结构
 
 ```
 edge-panel/
-├── config.yaml          # 配置：服务器列表、端口、采集间隔
-├── pyproject.toml       # 依赖定义
-├── run.py               # 启动入口
-├── backend/
-│   ├── main.py          # FastAPI 应用 + 生命周期
-│   ├── scheduler.py     # APScheduler 定时采集
-│   ├── storage.py       # 数据持久化（data/metrics.json）
-│   ├── config.py        # 配置加载
-│   └── collectors/
-│       ├── local.py     # 本机采集（psutil）
-│       └── ssh.py       # SSH 远程采集（paramiko）
-└── frontend/
-    ├── index.html       # 新标签页
-    ├── style.css
-    └── script.js
+├── package.sh              # 打包脚本（交叉编译 Go 宿主 + 扩展 → dist/*.zip）
+├── extension/              # MV3 浏览器扩展（侧边栏面板，直连源站）
+│   ├── manifest.json       # 清单：sidePanel/storage/cookies/downloads + host_permissions
+│   ├── background.js       # 点击图标打开侧边栏 + declarativeNetRequest 动态规则
+│   ├── sidepanel.html/css  # 单列布局面板
+│   ├── options.html/js     # 设置页（cursor、logshed、SSH 服务器；下载模板/导入）
+│   ├── config.example.yaml # 配置模板
+│   ├── chart.umd.min.js    # 本地 vendored Chart.js
+│   ├── cookies.js / metrics.js / logshed.js / cursor.js / feeds.js / script.js
+│   └── native/             # 打包产物：edge-panel-host.exe + 安装脚本（web_accessible_resources）
+├── native_host/            # Go Native Messaging 宿主源码（SSH-only）
+│   ├── main.go / config.go / collect_ssh.go / go.mod
+│   └── install-edge-panel-host.{ps1,bat}  # 安装脚本模板
+└── config.yaml             # 旧版遗留磁盘配置（已不再被读取）
 ```
 
-## 快速开始
+## 说明 / 限制
 
-### 1. 安装依赖（首次）
+- 需 **Edge / Chrome 116+**（Side Panel API）。新标签页**自动打开**侧边栏不可行（`chrome.sidePanel.open()` 要求用户手势）；**离开新标签页自动关闭**依赖 `chrome.sidePanel.close()`（**Edge 141+**，低于 141 时静默降级）。
+- **服务器磁盘**只在面板打开时采集，缓存 24h 内不重复查询（点刷新按钮强制）；不做 7×24 后台探测。Logshed 在面板可见期间每 60s 探测一次。
+- 扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers，由 [background.js](extension/background.js) 的 `declarativeNetRequest` 动态规则在请求发出前注入（cookie 每次面板打开时从 `chrome.cookies` 刷新），fetch 统一用 `credentials:"omit"` 避免重复。若 Cursor / 知乎仍 403，通常是浏览器里未登录对应站点。
+- SSH 配置保存在扩展设置页（`chrome.storage.sync`），采集时经 native 消息内联传给宿主；不再读取磁盘 `config.yaml`。宿主未注册时，扩展会引导从插件自身下载安装脚本，双击一次完成注册（MV3 无法静默写注册表）。
 
-```bash
-cd edge-panel
-uv sync
-# 或：python3 -m venv .venv && .venv/bin/pip install -e .
-```
+## 开发
 
-### 2. 编辑配置
-
-修改 `config.yaml`：
-
-```yaml
-# 只需改这里就能切换所有服务器的账号密码
-ssh_defaults:
-  username: "your_username"
-  password: "your_password"
-
-# 需要用 du -sh 检查的目录
-du_paths:
-  - "/home/your_data_dir"
-
-targets:
-  - name: "server-01"
-    type: ssh
-    host: "server-01.example.com"
-    port: 22
-  # 各 target 可单独写 username/password 覆盖 ssh_defaults
-```
-
-**知乎阅读流（可选）**：在 `config.yaml` 中配置 `feeds.platforms.zhihu.cookies.z_c0` 即可。在已登录知乎的浏览器中打开 DevTools → Network → 任意 `zhihu.com` 请求 → Request Headers → 从 cookie 中复制 `z_c0` 的值。若将来增加点赞/回复等写操作，可能还需 `_xsrf`、`SESSIONID`。
-
-```yaml
-feeds:
-  fetch_interval_minutes: 10
-  max_items_per_platform: 80
-  platforms:
-    zhihu:
-      enabled: true
-      cookies:
-        z_c0: "2|1:0|10:..."
-```
-
-### 3. 启动后端
-
-```bash
-.venv/bin/python run.py
-```
-
-后端默认监听 `http://127.0.0.1:8765`，同时提供前端静态文件服务。
-
-### 4. 设置为 Edge 新标签页
-
-推荐使用 **[New Tab Redirect](https://microsoftedge.microsoft.com/addons/detail/new-tab-redirect/oeijnnfgajlnnfnmhajpljolhblfeehg)** 扩展：
-
-1. 在 Edge 扩展商店安装 **New Tab Redirect**
-2. 点击扩展图标，将重定向 URL 填写为：
-   ```
-   http://127.0.0.1:8765/
-   ```
-3. 保存后，每次打开新标签页即会加载本面板
-
-> 注意：后端服务 (`run.py`) 必须保持运行，否则新标签页无法加载。建议配置为开机自启。
-
-## 数据刷新
-
-- 后端定时采集：默认每 **5 分钟**（可在 `config.yaml` 中修改 `schedule.interval_minutes`）
-- 前端自动刷新：每 **60 秒** 从 API 拉取最新数据
-- 点击面板右上角 **↻** 按钮可立即刷新
-
-## Autostart & auto-restart (recommended)
-
-This project includes a cron-based autostart option for the backend, plus a simple watchdog that restarts the server if it crashes.
-
-- Install/update the `@reboot` entry:
-
-```bash
-bash setup_autostart.sh
-```
-
-- Logs:
-  - Backend/watchdog log: `data/server.log`
-  - Watchdog PID file: `data/server.pid`
-
-### Debugging note (important)
-
-When autostart is enabled, a crashing backend may be restarted repeatedly. This is useful in production, but can be confusing during debugging.
-
-Recommended approaches:
-
-- Temporarily disable auto-restart while debugging:
-
-```bash
-EDGE_PANEL_AUTORESTART=0 bash server_watchdog.sh
-```
-
-- Or remove the autostart entry:
-
-```bash
-crontab -l | grep "edge-panel server"
-# then edit via: crontab -e
-```
-
+改 `extension/` 下 JS/CSS 后，在 `edge://extensions` 点「重新加载」并强制刷新侧边栏即可生效（零构建）。改 `native_host/` 或需要生成新安装包时，重跑 `bash package.sh`。

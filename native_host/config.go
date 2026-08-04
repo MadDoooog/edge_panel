@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -31,17 +33,27 @@ type Config struct {
 	Targets     []Target    `yaml:"targets"`
 }
 
-// defaultConfigPath 指向仓库中的 config.yaml（WSL 侧，浏览器是 Windows 版时经 UNC 访问）。
-// 若发行版名称或路径不同，可用请求字段 config_path 覆盖，或修改此常量后重新编译。
-const defaultConfigPath = `\\wsl.localhost\Ubuntu\home\lvwu\py\edge-panel\config.yaml`
+// resolveConfig 构造采集配置。优先级：内联 config（扩展经 native messaging 传入，JSON/YAML 均可——
+// yaml.v3 兼容 JSON，且按 yaml 标签匹配 ssh_defaults/du_paths/targets 键）> 磁盘文件（config_path）。
+func resolveConfig(config json.RawMessage, configPath string) (*Config, error) {
+	if len(config) > 0 {
+		var cfg Config
+		if err := yaml.Unmarshal(config, &cfg); err != nil {
+			return nil, err
+		}
+		return &cfg, nil
+	}
+	return loadConfig(configPath)
+}
 
-// loadConfig 读取 config.yaml。优先级：请求传入的 config_path > 环境变量 EDGE_PANEL_CONFIG > 默认常量。
+// loadConfig 从磁盘文件读取配置。config_path 为空时回退环境变量 EDGE_PANEL_CONFIG；
+// 两者皆无则报错（不再有编译期硬编码的默认路径，避免机器相关路径进入分发产物）。
 func loadConfig(path string) (*Config, error) {
 	if path == "" {
 		path = os.Getenv("EDGE_PANEL_CONFIG")
 	}
 	if path == "" {
-		path = defaultConfigPath
+		return nil, errors.New(`no config provided (send inline "config" or set config_path)`)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

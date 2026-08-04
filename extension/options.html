@@ -60,6 +60,63 @@
       text-align: center;
     }
     .hint { font-size: 0.75rem; color: #7a8f9e; margin: -4px 0 10px; line-height: 1.5; }
+    textarea {
+      width: 100%;
+      margin-top: 4px;
+      padding: 7px 9px;
+      background: #131a22;
+      border: 1px solid rgba(110,150,180,0.28);
+      border-radius: 6px;
+      color: #d4dee8;
+      font-size: 0.85rem;
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+      resize: vertical;
+      min-height: 56px;
+    }
+    textarea:focus { outline: 2px solid #4ee8c5; outline-offset: 1px; }
+    .target-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 8px;
+      margin-bottom: 8px;
+      border: 1px solid rgba(110,150,180,0.2);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+    }
+    .target-row input { margin-top: 0; padding: 6px 8px; font-size: 0.78rem; }
+    .del-btn {
+      grid-column: 1 / -1;
+      margin-top: 2px;
+      padding: 5px;
+      width: 100%;
+      background: transparent;
+      color: #f85149;
+      border: 1px solid rgba(248,81,73,0.4);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .del-btn:hover { background: rgba(248,81,73,0.12); filter: none; }
+    .add-target-btn {
+      margin-top: 6px;
+      width: 100%;
+      padding: 7px;
+      font-size: 0.78rem;
+      background: rgba(78,232,197,0.12);
+      color: #4ee8c5;
+      border: 1px solid rgba(78,232,197,0.3);
+    }
+    .add-target-btn:hover { background: rgba(78,232,197,0.2); }
+    .btn-row { display: flex; gap: 8px; margin-top: 16px; }
+    .btn-row button { flex: 1; margin-top: 0; }
+    .btn-secondary {
+      background: rgba(78,232,197,0.12);
+      color: #4ee8c5;
+      border: 1px solid rgba(78,232,197,0.3);
+      font-weight: 500;
+    }
+    .btn-secondary:hover { background: rgba(78,232,197,0.2); }
   </style>
 </head>
 <body>
@@ -84,9 +141,36 @@
     <input id="logshed-url" type="text" spellcheck="false" />
   </label>
 
+  <h2>SSH 服务器（服务器面板数据源）</h2>
+  <p class="hint">服务器磁盘经 Native Messaging → Go 宿主采集。可下载模板填写后导入，也可直接在下表填写。<br>
+  各服务器留空的用户名/密码/密钥将使用下方默认值。</p>
+  <label>默认用户名
+    <input id="ssh-username" type="text" spellcheck="false" placeholder="ssh 用户名" />
+  </label>
+  <label>默认密码
+    <input id="ssh-password" type="password" spellcheck="false" placeholder="ssh 密码（留空用密钥）" />
+  </label>
+  <label>默认密钥文件
+    <input id="ssh-key-file" type="text" spellcheck="false" placeholder="~/.ssh/id_rsa（可选）" />
+  </label>
+  <label>du -sh 检查目录（每行一个，可选）
+    <textarea id="ssh-du-paths" spellcheck="false" placeholder="/home/your_data_dir"></textarea>
+  </label>
+
+  <label>服务器列表</label>
+  <div id="ssh-targets"></div>
+  <button type="button" id="ssh-add-target" class="add-target-btn">+ 添加服务器</button>
+
+  <div class="btn-row">
+    <button type="button" id="download-template-btn" class="btn-secondary">下载配置模板</button>
+    <button type="button" id="import-config-btn" class="btn-secondary">导入配置</button>
+  </div>
+  <input type="file" id="import-file" accept=".yaml,.yml,.json" style="display:none" />
+
   <button type="submit" id="save-btn">保存</button>
   <span id="save-status" class="status"></span>
 
+  <script src="yaml.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

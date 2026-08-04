@@ -343,6 +343,26 @@ body::after {
   font-size: 0.85rem;
 }
 
+.metric-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  padding: 0 12px 12px;
+}
+
+.metric-action {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--accent, #4ee8c5);
+  background: color-mix(in srgb, var(--accent, #4ee8c5) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #4ee8c5) 35%, transparent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.metric-action:hover { background: color-mix(in srgb, var(--accent, #4ee8c5) 22%, transparent); }
+.metric-action:disabled { opacity: 0.6; cursor: default; }
+
 /* ============================================================
    Server card
    ============================================================ */
