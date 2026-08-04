@@ -6,7 +6,13 @@
      credentials:"omit"，只设 Accept / Content-Type。
    ============================================================ */
 
+// 文档生命周期内缓存（面板每次打开重载自然失效），
+// 避免 leaderboard / usage 各读一次 sync storage + cookie。
+let cursorSettingsCache = null;
+
 async function getCursorSettings() {
+  if (cursorSettingsCache) return cursorSettingsCache;
+
   const s = await chrome.storage.sync.get({
     cursorTeamId: "",
     cursorUserId: "",
@@ -23,11 +29,30 @@ async function getCursorSettings() {
     if (idx > 0) cookieMap[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
   }
 
-  return {
+  cursorSettingsCache = {
     cursorTeamId: s.cursorTeamId || cookieMap.team_id || "",
     cursorUserId: s.cursorUserId || (cookieMap.workos_id || "").replace(/^user_/, "") || "",
     cursorUserEmail: s.cursorUserEmail,
   };
+  return cursorSettingsCache;
+}
+
+/**
+ * 带 403 自愈的 fetch：403 时向 background 重新触发 refresh-auth
+ * （DNR cookie 重注入，sendResponse 在规则更新完成后才返回），随后重试一次。
+ * 非 403 或重试仍失败则照常抛错。
+ */
+async function cursorFetch(url, options) {
+  const doFetch = () => fetch(url, options);
+  const resp = await doFetch();
+  if (resp.status === 403) {
+    await chrome.runtime.sendMessage({ type: "refresh-auth" }).catch(() => {});
+    const retry = await doFetch();
+    if (!retry.ok) throw new Error(`HTTP ${retry.status}`);
+    return retry;
+  }
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp;
 }
 
 function pad2(n) {
@@ -43,14 +68,17 @@ function cursorDateRangeDays(days) {
   return { startDate: fmt(startD), endDate: fmt(endD) };
 }
 
-/** UTC 日边界毫秒范围（后端 usage 使用） */
+/** UTC 日边界毫秒范围（含当天：结束取「明天 00:00 UTC」）。 */
 function cursorDateRangeMs(days) {
   const now = new Date();
+  // 结束边界不用「今天 23:59 UTC」而用「明天 00:00 UTC」：
+  // cursor usage 接口把 endDate 向下取整到日、并当作排除边界，
+  // 若传今天 23:59 会被取整成今天 00:00 → 当天事件整体被排除 → 图表只到昨天。
   const end = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0)
   );
   const start = new Date(
-    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() - (days - 1), 0, 0, 0, 0)
+    Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() - days, 0, 0, 0, 0)
   );
   return { startMs: String(start.getTime()), endMs: String(end.getTime()) };
 }
@@ -66,11 +94,10 @@ async function cursorFetchLeaderboardPeriod(days, settings) {
     leaderboardSortBy: "composer_lines",
   });
   const url = `https://cursor.com/api/v2/analytics/team/leaderboard?${params}`;
-  const resp = await fetch(url, {
+  const resp = await cursorFetch(url, {
     credentials: "omit",
     headers: { accept: "application/json" },
   });
-  if (!resp.ok) throw new Error(`leaderboard HTTP ${resp.status}`);
   const payload = await resp.json();
   const board = payload.composer_leaderboard || {};
   const entries = board.data || [];
@@ -106,7 +133,7 @@ async function fetchCursorUsageApi() {
   if (!settings.cursorTeamId) throw new Error("未检测到 Cursor team_id — 请先在浏览器登录 cursor.com，或到扩展设置填写");
   if (!settings.cursorUserId) throw new Error("未检测到 Cursor user_id — 请到扩展设置（⚙）填写");
 
-  const days = 7;
+  const days = 30; // 图表显示最近 30 天
   const { startMs, endMs } = cursorDateRangeMs(days);
   const payload = {
     teamId: settings.cursorTeamId,
@@ -114,15 +141,14 @@ async function fetchCursorUsageApi() {
     endDate: endMs,
     userId: settings.cursorUserId,
     page: 1,
-    pageSize: 500,
+    pageSize: 1000, // 30 天事件量可能超 500,调大单页上限
   };
 
-  const resp = await fetch("https://cursor.com/api/dashboard/get-filtered-usage-events", {
+  const resp = await cursorFetch("https://cursor.com/api/dashboard/get-filtered-usage-events", {
     method: "POST",
     credentials: "omit",
     headers: { accept: "*/*", "content-type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(`cursor-usage HTTP ${resp.status}`);
   return await resp.json();
 }

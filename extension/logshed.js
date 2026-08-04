@@ -42,7 +42,11 @@ async function probeLogshed() {
   let statusCode = null;
   let error = null;
   try {
-    const resp = await fetch(url, { cache: "no-store", redirect: "follow" });
+    const resp = await fetch(url, {
+      cache: "no-store",
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000), // 点击重探遇死主机 15s 内返回,不无限悬挂
+    });
     statusCode = resp.status;
     ok = statusCode >= 200 && statusCode < 500;
   } catch (err) {

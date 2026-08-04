@@ -4,9 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>edge-panel</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@300;400;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="sidepanel.css" />
 </head>
 <body>
@@ -19,29 +16,35 @@
   <main class="panel-stack">
     <!-- 1. Cursor 用量 -->
     <section class="panel cursor-panel">
-      <div class="panel-header">
+      <div class="panel-header" aria-expanded="true">
+        <span class="panel-caret" aria-hidden="true"></span>
         <img src="https://cursor.com/favicon.ico" class="cursor-favicon" alt="" />
         <span class="panel-title">Cursor 用量</span>
         <span id="cursor-range" class="cursor-range"></span>
         <button id="cursor-refresh" class="refresh-btn" title="刷新">↻</button>
         <a href="https://cursor.com/cn/dashboard/usage" target="_blank" class="cursor-open-btn" title="在新标签页打开">↗</a>
       </div>
-      <div class="cursor-chart-wrap">
-        <canvas id="cursor-chart"></canvas>
-        <div class="cursor-empty" id="cursor-empty" hidden>暂无数据或 Cookie 已过期</div>
+      <div class="panel-body">
+        <div class="cursor-chart-wrap">
+          <canvas id="cursor-chart"></canvas>
+          <div class="cursor-empty" id="cursor-empty" hidden>暂无数据或 Cookie 已过期</div>
+        </div>
+        <div class="cursor-stats" id="cursor-stats"></div>
       </div>
-      <div class="cursor-stats" id="cursor-stats"></div>
     </section>
 
     <!-- 2. 服务器（SSH 磁盘） -->
     <section class="panel servers-panel">
-      <div class="panel-header">
+      <div class="panel-header" aria-expanded="true">
+        <span class="panel-caret" aria-hidden="true"></span>
         <span class="panel-title">服务器状态</span>
         <span id="last-updated" class="last-updated">加载中…</span>
         <button id="refresh-btn" class="refresh-btn" title="立即刷新">↻</button>
       </div>
-      <div id="servers-container" class="servers-container">
-        <div class="loading">正在获取数据…</div>
+      <div class="panel-body">
+        <div id="servers-container" class="servers-container">
+          <div class="loading">正在获取数据…</div>
+        </div>
       </div>
     </section>
 
@@ -52,7 +55,8 @@
 
     <!-- 4. 阅读 -->
     <section id="feed-panel" class="panel feed-panel" hidden>
-      <div class="panel-header feed-panel-header">
+      <div class="panel-header feed-panel-header" aria-expanded="true">
+        <span class="panel-caret" aria-hidden="true"></span>
         <span class="panel-title">阅读</span>
         <div class="feed-tabs" id="feed-tabs">
           <button type="button" class="feed-tab active" data-filter="all">全部</button>
@@ -62,10 +66,12 @@
         <span id="feed-status" class="feed-status">—</span>
         <button id="feed-refresh" class="refresh-btn" title="刷新">↻</button>
       </div>
-      <div id="feed-list" class="feed-list">
-        <div class="loading">点击上方「阅读」加载内容</div>
+      <div class="panel-body">
+        <div id="feed-list" class="feed-list">
+          <div class="loading">点击上方「阅读」加载内容</div>
+        </div>
+        <div id="feed-sentinel" class="feed-sentinel" hidden></div>
       </div>
-      <div id="feed-sentinel" class="feed-sentinel" hidden></div>
     </section>
   </main>
 

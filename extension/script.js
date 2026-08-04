@@ -6,14 +6,13 @@
    - cursor.js（直连 cursor.com + 自动 cookie）
    - feeds.js（直连知乎 + 本地缓存）
    ============================================================ */
-const REFRESH_INTERVAL_MS = 60_000; // Logshed 探测周期(面板可见期间)
 const METRICS_STALE_MS = 24 * 60 * 60 * 1000; // SSH 磁盘缓存 24h 内不重复采集
 
 /* ============================================================
-   顶部工具按钮：设置
+   顶部工具按钮：设置（panel 内导航到 options.html，不整页打开）
    ============================================================ */
 document.getElementById("open-options").addEventListener("click", () => {
-  chrome.runtime.openOptionsPage();
+  window.location.href = chrome.runtime.getURL("options.html");
 });
 
 // 等待 background 刷新 DNR 头注入规则（cookie/referer/origin）后再发起直连请求
@@ -30,93 +29,58 @@ function escHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-function buildGauge(pct, mountLabel) {
-  const p = Math.min(Math.max(pct || 0, 0), 100);
-  const danger = p >= 80;
-  const fillHex = danger ? "#f06b6b" : "#3dd68c";
-  const glowRgba = danger ? "rgba(240,107,107,.55)" : "rgba(61,214,140,.45)";
-  const dashFill = p === 0 ? "0.1 100" : `${p} 100`;
-  const id = "g" + escHtml(mountLabel).replace(/\W/g, "");
-
-  return `
-<div class="gauge-item" title="${escHtml(mountLabel)} ${p.toFixed(1)}%">
-  <svg viewBox="0 0 200 115" class="gauge-svg">
-    <defs>
-      <filter id="${id}" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="3" result="blur"/>
-        <feFlood flood-color="${glowRgba}" result="color"/>
-        <feComposite in="color" in2="blur" operator="in" result="glow"/>
-        <feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge>
-      </filter>
-    </defs>
-    <path d="M 15 105 A 85 85 0 0 1 185 105"
-      fill="none" stroke="#1a232d" stroke-width="16" stroke-linecap="round" pathLength="100"/>
-    <path d="M 15 105 A 85 85 0 0 1 185 105"
-      fill="none" stroke="${fillHex}" stroke-width="16" stroke-linecap="round"
-      pathLength="100" stroke-dasharray="${dashFill}" filter="url(#${id})"/>
-    <line x1="100" y1="22" x2="100" y2="35" stroke="#e8b84a" stroke-width="2" opacity="0.55"
-      transform="rotate(${-90 + 180 * 0.8} 100 105)"/>
-    <text x="100" y="90" text-anchor="middle"
-      fill="${fillHex}" font-size="30" font-weight="700"
-      font-family="ui-monospace,'Cascadia Code',Consolas,monospace">${p.toFixed(0)}%</text>
-  </svg>
-  <div class="gauge-mount">${escHtml(mountLabel)}</div>
-</div>`;
-}
-
 const DU_TOP_N = 3;
-
-function renderDuChips(duData) {
-  if (!duData || Object.keys(duData).length === 0) return "";
-  let rows = "";
-  for (const [path, items] of Object.entries(duData)) {
-    if (!items || items.length === 0) continue;
-    const label = path.split("/").pop() || path;
-    rows += `<div class="du-path-label" title="${escHtml(path)}">${escHtml(label)}</div>`;
-    for (const item of items.slice(0, DU_TOP_N)) {
-      rows += `<div class="du-chip-name" title="${escHtml(item.full_path)}">${escHtml(item.name)}</div>
-               <div class="du-chip-size">${escHtml(item.size)}</div>`;
-    }
-  }
-  return rows ? `<div class="du-chips">${rows}</div>` : "";
-}
 
 function renderServer(srv) {
   const card = document.createElement("div");
   card.className = "server-card";
 
   const statusCls = srv.status === "ok" ? "ok" : "error";
-  const dateStr = (srv.collected_at ?? "").replace("T", " ");
-  let html = `
-    <div class="server-name">
-      <div class="status-dot ${statusCls}"></div>
-      <span>${escHtml(srv.name)}</span>
-      <span class="collected-at">${escHtml(dateStr)}</span>
-    </div>`;
 
   if (srv.status !== "ok") {
-    html += `<div class="error-msg">&#9888; 采集失败</div>`;
-    card.innerHTML = html;
+    card.innerHTML = `
+      <div class="server-main">
+        <div class="server-name"><div class="status-dot ${statusCls}"></div><span>${escHtml(srv.name)}</span></div>
+      </div>
+      <div class="error-msg">&#9888; 采集失败</div>`;
     return card;
   }
 
+  // 占用：优先根分区 /，否则取第一块真实块设备盘；色条 + 百分比
   const disks = (srv.disks || []).filter((d) => d.device?.startsWith("/dev/"));
-  const duHtml = srv.du_data ? renderDuChips(srv.du_data) : "";
+  const occDisk = disks.find((d) => d.mountpoint === "/") || disks[0];
+  const occPct = occDisk ? Math.round(occDisk.percent) : null;
+  const pct = occPct == null ? 0 : Math.max(0, Math.min(100, occPct));
+  const barCls = occPct != null && occPct >= 80 ? " danger" : "";
 
-  if (disks.length > 0 || duHtml) {
-    html += `<div class="card-body">`;
-    if (disks.length > 0) {
-      html += `<div class="gauge-grid">`;
-      for (const disk of disks) {
-        html += buildGauge(disk.percent, disk.mountpoint);
-      }
-      html += `</div>`;
+  // du top3：du_paths 各路径已按 du -sh | sort -rh 降序，扁平取前 3
+  const duItems = [];
+  for (const items of Object.values(srv.du_data || {})) {
+    if (!items || !items.length) continue;
+    for (const it of items) {
+      duItems.push(it);
+      if (duItems.length >= DU_TOP_N) break;
     }
-    html += duHtml;
-    html += `</div>`;
+    if (duItems.length >= DU_TOP_N) break;
   }
+  const duHtml = duItems.length
+    ? `<div class="server-du">${duItems
+        .map(
+          (it) =>
+            `<div class="du-row" title="${escHtml(it.full_path || it.name)}"><span class="du-name">${escHtml(it.name)}</span><span class="du-size">${escHtml(it.size)}</span></div>`
+        )
+        .join("")}</div>`
+    : "";
 
-  card.innerHTML = html;
+  card.innerHTML = `
+    <div class="server-cols">
+      <div class="server-main">
+        <div class="server-name"><div class="status-dot ${statusCls}"></div><span>${escHtml(srv.name)}</span></div>
+        <div class="server-usage-bar"><div class="server-usage-fill${barCls}" style="width:${pct}%"></div></div>
+        <div class="server-usage"><span class="server-usage-label">占用</span> <span class="server-usage-pct">${occPct == null ? "—" : `${occPct}%`}</span></div>
+      </div>
+      ${duHtml}
+    </div>`;
   return card;
 }
 
@@ -207,9 +171,8 @@ async function refreshLogshed() {
   const updated = await probeLogshed();
   renderLogshed(updated);
 }
-refreshLogshed();
-setInterval(refreshLogshed, REFRESH_INTERVAL_MS);
-document.getElementById("logshed-btn")?.addEventListener("click", refreshLogshed);
+refreshLogshed(); // 打开面板时实时探测一次(不做周期轮询)
+document.getElementById("logshed-btn")?.addEventListener("click", refreshLogshed); // 点击实时重探
 
 /* ============================================================
    Cursor 用量图表
@@ -382,12 +345,13 @@ async function fetchCursorUsage() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: { duration: 250 }, // 刷新时短动画,避免整段 1s 重放
         interaction: { mode: "index", intersect: false },
         plugins: {
           legend: {
             display: true,
             position: "bottom",
-            labels: { color: "#7a8f9e", font: { size: 10 }, boxWidth: 12, padding: 8 },
+            labels: { color: "#7a8f9e", font: { size: 9 }, boxWidth: 10, padding: 4 },
           },
           tooltip: {
             callbacks: {
@@ -403,14 +367,14 @@ async function fetchCursorUsage() {
         },
         scales: {
           x: {
-            ticks: { color: "#7a8f9e", font: { size: 10 } },
+            ticks: { color: "#7a8f9e", font: { size: 9 } },
             grid: { color: "rgba(110,150,180,0.1)" },
           },
           y: {
             position: "left",
             ticks: {
               color: "#4ee8c5",
-              font: { size: 10 },
+              font: { size: 9 },
               callback: (v) => (v >= 1000 ? (v / 1000).toFixed(0) + "k" : v),
             },
             grid: { color: "rgba(110,150,180,0.1)" },
@@ -419,7 +383,7 @@ async function fetchCursorUsage() {
             position: "right",
             ticks: {
               color: "#e8b84a",
-              font: { size: 10 },
+              font: { size: 9 },
               callback: (v) => "$" + v.toFixed(2),
             },
             grid: { drawOnChartArea: false },
@@ -668,6 +632,7 @@ async function fetchFeedPage({ reset = false } = {}) {
       feedFullTextCache.clear();
     }
 
+    const before = feedItems.length;
     const offset = reset ? 0 : feedItems.length;
     const data = await Feeds.getFeeds(feedListParams(offset, FEED_PAGE_SIZE));
     const batch = data.items ?? [];
@@ -686,7 +651,17 @@ async function fetchFeedPage({ reset = false } = {}) {
       feedHasMore = Boolean(retry.has_more);
     }
 
-    renderFeedCards();
+    if (reset) {
+      renderFeedCards();
+    } else {
+      // load-more:仅追加新增卡片,避免整表重建(renderFeedCards 会 innerHTML 全量重建)
+      const fresh = feedItems.slice(before);
+      if (fresh.length && container) {
+        container.insertAdjacentHTML("beforeend", fresh.map(renderFeedCard).join(""));
+      }
+      const sentinel = document.getElementById("feed-sentinel");
+      if (sentinel) sentinel.hidden = !feedHasMore;
+    }
   } catch (err) {
     if (container && reset) {
       container.innerHTML = `<div class="loading" style="color:#f85149">阅读流加载失败 (${escHtml(
@@ -947,3 +922,43 @@ document.getElementById("feed-toggle-btn")?.addEventListener("click", () => {
 });
 
 setupFeedInfiniteScroll();
+
+/* ============================================================
+   区块折叠（可持久化，chrome.storage.local）
+   ============================================================ */
+const COLLAPSED_KEY = "panel-collapsed";
+
+async function loadCollapsedState() {
+  const obj = await chrome.storage.local.get(COLLAPSED_KEY);
+  return obj[COLLAPSED_KEY] || {};
+}
+
+async function setupCollapsible(sectionEl, key) {
+  if (!sectionEl) return;
+  const header = sectionEl.querySelector(".panel-header");
+  if (!header) return;
+
+  const setCollapsed = (collapsed, persist) => {
+    sectionEl.classList.toggle("collapsed", collapsed);
+    header.setAttribute("aria-expanded", String(!collapsed));
+    if (persist) {
+      loadCollapsedState().then((s) => {
+        s[key] = collapsed;
+        chrome.storage.local.set({ [COLLAPSED_KEY]: s });
+      });
+    }
+  };
+
+  header.addEventListener("click", (e) => {
+    // 点刷新/跳转/标签等按钮不触发展开收起
+    if (e.target.closest("button, a")) return;
+    setCollapsed(!sectionEl.classList.contains("collapsed"), true);
+  });
+
+  const state = await loadCollapsedState();
+  setCollapsed(Boolean(state[key]), false);
+}
+
+setupCollapsible(document.querySelector(".cursor-panel"), "cursor");
+setupCollapsible(document.querySelector(".servers-panel"), "servers");
+setupCollapsible(document.getElementById("feed-panel"), "feed");

@@ -87,6 +87,12 @@ async function readCookies(url) {
   }
 }
 
+// 每次 refresh-auth / 启动都新鲜读 cookie,不做缓存。
+// 之前的 60s TTL 缓存是 403 的根因:若某次读到 cursor cookie 为空而 zhihu
+// 恰好有值,ts 会被置为 now → 空 cursor 被「续」60s → 期间每次 refresh-auth
+// 都复用空 cookie → DNR 持续不注入 cookie → 403,且 cursorFetch 的重试在同窗口内
+// 反复刷新仍拿到空值,表现为 403 卡死。chrome.cookies.getAll 很轻,面板打开时
+// 读一次的开销可忽略,回归优化前的行为。
 async function updateAuthRules() {
   const [cursorCookie, zhihuCookie] = await Promise.all([
     readCookies("https://cursor.com"),

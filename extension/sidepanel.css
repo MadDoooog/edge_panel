@@ -36,7 +36,7 @@ html, body {
   background: var(--void);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 15px;
+  font-size: 13px;
   overflow: hidden;
 }
 
@@ -49,7 +49,6 @@ body::before {
     linear-gradient(rgba(78, 232, 197, 0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(78, 232, 197, 0.03) 1px, transparent 1px);
   background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 35%, black 20%, transparent 75%);
   pointer-events: none;
   z-index: 0;
 }
@@ -221,7 +220,7 @@ body::after {
   text-decoration: none;
   font-size: 0.78rem;
   font-weight: 500;
-  padding: 5px 14px;
+  padding: 3px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
@@ -260,15 +259,36 @@ body::after {
 .panel-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 13px 18px;
+  gap: 6px;
+  padding: 5px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  cursor: pointer;
+}
+
+/* 折叠 caret（▾ 展开 / ▸ 收起） */
+.panel-caret {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  transition: transform 0.15s;
+}
+.panel-caret::before {
+  content: "▾";
+}
+.panel.collapsed .panel-caret::before {
+  content: "▸";
+}
+.panel.collapsed .panel-body {
+  display: none;
+}
+.panel.collapsed > .panel-header {
+  border-bottom: none;
 }
 
 .panel-title {
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: 0.7rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -286,9 +306,9 @@ body::after {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-size: 1rem;
-  width: 28px;
-  height: 28px;
+  font-size: 0.85rem;
+  width: 22px;
+  height: 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -328,23 +348,42 @@ body::after {
    ============================================================ */
 .server-card {
   background: var(--panel);
-  padding: 12px 16px;
+  padding: 6px 10px;
   border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   transition: background 0.2s;
 }
 
 .server-card:hover { background: var(--surface); }
 .server-card:first-child { border-top: none; }
 
+/* 两列布局:左 3fr(服务器名 / 色条 / 占用%) 右 2fr(du top3) */
+.server-cols {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.server-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
 .server-name {
   font-weight: 600;
-  font-size: 0.86rem;
+  font-size: 0.78rem;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+}
+
+.server-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-dot {
@@ -370,102 +409,72 @@ body::after {
   50%      { opacity: 0.55; }
 }
 
-.collected-at {
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  color: var(--text-muted);
-  font-weight: 400;
-  margin-left: auto;
-  white-space: nowrap;
-}
-
 .error-msg {
   color: var(--signal-danger);
   font-size: 0.8rem;
 }
 
-/* ============================================================
-   Fuel gauge
-   ============================================================ */
-.card-body {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+.server-usage-bar {
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
 }
 
-.gauge-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  flex-shrink: 0;
+.server-usage-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--signal-ok);
+  transition: width 0.3s ease;
 }
 
-.gauge-item {
+.server-usage-fill.danger {
+  background: var(--signal-danger);
+}
+
+.server-usage {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.server-usage-pct {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--phosphor);
+}
+
+.server-du {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  width: 78px;
-}
-
-.gauge-svg {
-  width: 78px;
-  height: auto;
-  overflow: visible;
-}
-
-.gauge-mount {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  color: var(--text-muted);
-  margin-top: -2px;
-  text-align: center;
-  max-width: 78px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ============================================================
-   du chips
-   ============================================================ */
-.du-chips {
-  flex: 1;
+  gap: 1px;
   min-width: 0;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-content: start;
-  gap: 0;
-  padding-top: 2px;
+  border-left: 1px solid var(--border);
+  padding-left: 8px;
 }
 
-.du-path-label {
-  grid-column: 1 / -1;
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  color: var(--text-muted);
-  margin-bottom: 3px;
+.du-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.du-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.du-chip-name {
-  font-size: 0.72rem;
   color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px 0;
-  min-width: 0;
 }
 
-.du-chip-size {
+.du-size {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
   color: var(--phosphor);
-  white-space: nowrap;
-  padding: 1px 0 1px 8px;
-  text-align: right;
+  flex-shrink: 0;
 }
 
 /* ============================================================
@@ -497,8 +506,8 @@ body::after {
 }
 
 .cursor-favicon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 3px;
 }
 
@@ -528,8 +537,8 @@ body::after {
 .cursor-chart-wrap {
   position: relative;
   width: 100%;
-  height: 220px;
-  padding: 10px 10px 4px;
+  height: 140px;
+  padding: 4px 8px 2px;
 }
 
 .cursor-chart-wrap canvas { display: block; }
@@ -551,8 +560,8 @@ body::after {
 .cursor-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 14px 14px;
+  gap: 4px;
+  padding: 6px 10px 8px;
   border-top: 1px solid var(--border);
 }
 
@@ -563,8 +572,8 @@ body::after {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: 0.72rem;
+  padding: 3px 7px;
+  font-size: 0.66rem;
 }
 
 .stat-label { color: var(--text-muted); }
@@ -588,98 +597,6 @@ body::after {
    ============================================================ */
 .logshed-panel {
   border-top: 1px solid var(--border);
-}
-
-.logshed-banner {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--text-muted);
-  max-width: 140px;
-  text-align: right;
-  line-height: 1.3;
-}
-
-.logshed-banner.ok { color: var(--signal-ok); }
-.logshed-banner.error { color: var(--signal-danger); }
-
-.logshed-service {
-  padding: 12px 16px 14px;
-}
-
-.logshed-service-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.logshed-service-name {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.logshed-uptime-pct {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.logshed-timeline-wrap {
-  position: relative;
-}
-
-.logshed-timeline {
-  display: flex;
-  height: 24px;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  cursor: crosshair;
-}
-
-.logshed-timeline-fill {
-  width: 100%;
-  height: 100%;
-}
-
-.logshed-timeline-empty {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.66rem;
-  color: var(--text-muted);
-}
-
-.logshed-timeline-tip {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 6px);
-  transform: translateX(-50%);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  color: var(--text);
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 2;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-
-.logshed-timeline-axis {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 5px;
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  color: var(--text-muted);
 }
 
 /* ============================================================
@@ -715,8 +632,8 @@ body::after {
   background: var(--surface);
   color: var(--text-muted);
   border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 0.72rem;
+  padding: 2px 8px;
+  font-size: 0.68rem;
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
@@ -758,7 +675,7 @@ body::after {
 .feed-card {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 18px 20px 16px;
+  padding: 11px 14px 10px;
   transition: background 0.15s;
 }
 
@@ -774,19 +691,11 @@ body::after {
   box-shadow: inset 3px 0 0 var(--signal-warn);
 }
 
-.feed-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
 .feed-card-title-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .feed-platform-mark {
@@ -837,9 +746,9 @@ body::after {
 .feed-card-title {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 600;
-  line-height: 1.5;
+  line-height: 1.45;
   color: var(--text);
   margin: 0;
 }
@@ -851,15 +760,6 @@ body::after {
   gap: 8px;
   max-width: 42%;
   margin-top: 2px;
-}
-
-.feed-card-author-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
 }
 
 .feed-card-author {
@@ -878,8 +778,8 @@ body::after {
 }
 
 .feed-card-body {
-  font-size: 0.88rem;
-  line-height: 1.75;
+  font-size: 0.82rem;
+  line-height: 1.5;
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
@@ -888,10 +788,10 @@ body::after {
 
 .feed-card-body.collapsed {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  padding-bottom: 18px;
+  padding-bottom: 8px;
 }
 
 .feed-card-body.expanded {
@@ -924,26 +824,12 @@ body::after {
   text-decoration: underline;
 }
 
-.feed-expand-btn {
-  margin-top: 8px;
-  border: none;
-  background: transparent;
-  color: var(--phosphor);
-  font-size: 0.78rem;
-  cursor: pointer;
-  padding: 0;
-}
-
-.feed-expand-btn:hover {
-  text-decoration: underline;
-}
-
 .feed-card-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .feed-card-time {
@@ -963,7 +849,7 @@ body::after {
   background: var(--panel);
   color: var(--text-muted);
   border-radius: var(--radius-sm);
-  padding: 5px 12px;
+  padding: 3px 8px;
   font-size: 0.76rem;
   cursor: pointer;
 }
@@ -1195,7 +1081,7 @@ html, body {
 }
 
 body {
-  padding: 14px;
+  padding: 10px;
   display: block;
 }
 
@@ -1225,13 +1111,13 @@ body {
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .panel-stack {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
 }
 
 .panel {
@@ -1271,13 +1157,13 @@ body {
 /* Logshed 单按钮状态 */
 .logshed-btn {
   width: 100%;
-  padding: 14px 18px;
+  padding: 6px 10px;
   border: none;
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text-muted);
   font-family: var(--font-ui);
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-align: left;
