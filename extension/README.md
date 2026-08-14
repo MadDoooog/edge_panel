@@ -9,6 +9,7 @@
 | Cursor 用量 + 团队排名 | **直连 cursor.com**（host_permissions 免 CORS；Cookie/Origin/Referer 由 background 的 `declarativeNetRequest` 规则注入）；team_id / user_id 从 cookie 自动推导，通常只需在设置填 user_email |
 | 服务器磁盘 | **Native Messaging → Go 宿主**按需 SSH 采集 `type:ssh` 目标（df + du）；宿主**流式上报进度**，采集由 background 持有、侧边栏关闭后仍继续 |
 | Logshed | 单按钮红绿状态（点击重新探测），不展示历史 |
+| Release Matrix | Logshed 左侧链接（新标签页打开）；`version` 参数在设置页配置（`releaseMatrixVersion`，默认 `26q3`） |
 | 阅读（知乎） | 直连 zhihu API + 自动 cookie；归一化、去重缓存、收藏、评论全部在扩展内完成 |
 
 ## 安装

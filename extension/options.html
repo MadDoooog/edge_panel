@@ -141,6 +141,12 @@
     <input id="logshed-url" type="text" spellcheck="false" />
   </label>
 
+  <h2>Release Matrix 链接</h2>
+  <label>version（侧边栏 Logshed 左侧链接的版本号，如 26q3）
+    <input id="release-matrix-version" type="text" spellcheck="false" placeholder="26q3" />
+  </label>
+  <p class="hint">链接为 <code>…/release_matrix/releases/index?mo=t&amp;region=hkm%252Cisc%252Csea&amp;version=…</code>，version 取这里的值。</p>
+
   <h2>SSH 服务器（服务器面板数据源）</h2>
   <p class="hint">服务器磁盘经 Native Messaging → Go 宿主采集。可下载模板填写后导入，也可直接在下表填写。<br>
   各服务器留空的用户名/密码/密钥将使用下方默认值。</p>

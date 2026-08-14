@@ -8,6 +8,11 @@
    ============================================================ */
 const METRICS_STALE_MS = 24 * 60 * 60 * 1000; // SSH 磁盘缓存 24h 内不重复采集
 
+// Release Matrix 链接（Logshed 左侧；version 在设置页配置，默认 26q3）
+const RELEASE_MATRIX_BASE_URL =
+  "https://cygnus.telenav.com/release_matrix/releases/index?mo=t&region=hkm%252Cisc%252Csea&version=";
+const RELEASE_MATRIX_DEFAULT_VERSION = "26q3";
+
 /* ============================================================
    顶部工具按钮：设置（panel 内导航到 options.html，不整页打开）
    ============================================================ */
@@ -223,6 +228,20 @@ async function initMetrics() {
 }
 document.getElementById("refresh-btn").addEventListener("click", () => requestMetricsCollection(true)); // 手动刷新始终强制重新采集
 authReady.then(() => initMetrics());
+
+/* ============================================================
+   Release Matrix 链接（Logshed 左侧，新标签页打开）
+   version 由设置页配置（chrome.storage.sync: releaseMatrixVersion）
+   ============================================================ */
+async function initReleaseMatrixLink() {
+  const a = document.getElementById("release-matrix-link");
+  if (!a) return;
+  const stored = await chrome.storage.sync.get({ releaseMatrixVersion: RELEASE_MATRIX_DEFAULT_VERSION });
+  const version = String(stored.releaseMatrixVersion || RELEASE_MATRIX_DEFAULT_VERSION).trim() || RELEASE_MATRIX_DEFAULT_VERSION;
+  a.href = RELEASE_MATRIX_BASE_URL + encodeURIComponent(version);
+  a.title = a.href;
+}
+initReleaseMatrixLink();
 
 /* ============================================================
    Logshed 状态（单按钮红绿显示，不展示历史）

@@ -61,7 +61,7 @@ bash package.sh
 - `extension/metrics.js` — 页面侧辅助：采集缓存/进度读写（`metrics` / `metricsProgress`）、宿主安装引导、错误识别；不再直接 connectNative
 - `extension/logshed.js` — 探测 + 历史（chrome.storage.local）；面板可见期间每 60s 探测一次
 - `extension/cookies.js` — `chrome.cookies` 读取辅助（cursor.com 的 `WorkosCursorSessionToken`、zhihu.com 的 `z_c0`）
-- `extension/options.html/js` — 存 Cursor `team_id/user_id/user_email` 与 Logshed URL（这些不是 cookie，无法自动读取）
+- `extension/options.html/js` — 存 Cursor `team_id/user_id/user_email`、Logshed URL 与 Release Matrix `version`（`releaseMatrixVersion`，侧边栏 Logshed 左侧链接用；这些不是 cookie，无法自动读取）
 
 ## 打包与 Native 宿主安装
 

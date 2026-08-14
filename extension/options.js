@@ -3,6 +3,7 @@ const DEFAULTS = {
   cursorUserId: "",
   cursorUserEmail: "",
   logshedUrl: "http://logshed-search-eu.prod.mypna.com/",
+  releaseMatrixVersion: "26q3",
   sshConfig: { ssh_defaults: { username: "", password: "", key_file: "" }, du_paths: [], targets: [] },
 };
 
@@ -19,6 +20,7 @@ async function loadSettings() {
   document.getElementById("cursor-user-id").value = stored.cursorUserId;
   document.getElementById("cursor-user-email").value = stored.cursorUserEmail;
   document.getElementById("logshed-url").value = stored.logshedUrl;
+  document.getElementById("release-matrix-version").value = stored.releaseMatrixVersion;
 
   const cfg = stored.sshConfig || {};
   const sd = cfg.ssh_defaults || {};
@@ -96,6 +98,7 @@ document.getElementById("save-btn").addEventListener("click", async () => {
     cursorUserId: document.getElementById("cursor-user-id").value.trim(),
     cursorUserEmail: document.getElementById("cursor-user-email").value.trim(),
     logshedUrl: document.getElementById("logshed-url").value.trim() || DEFAULTS.logshedUrl,
+    releaseMatrixVersion: document.getElementById("release-matrix-version").value.trim() || DEFAULTS.releaseMatrixVersion,
     sshConfig: collectSshConfig(),
   });
   showStatus("✓ 已保存");
