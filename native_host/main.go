@@ -15,6 +15,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 )
 
 // Request 是来自扩展的 native messaging 消息。
@@ -40,7 +41,7 @@ func main() {
 		var resp any
 		switch req.Type {
 		case "collect":
-			resp = runCollect(req.Config, req.ConfigPath)
+			resp = runCollect(req.Config, req.ConfigPath, os.Stdout)
 		case "ping":
 			resp = map[string]any{"pong": true}
 		default:
@@ -53,12 +54,13 @@ func main() {
 }
 
 // runCollect 构造配置并采集所有 SSH 目标，返回响应对象（错误以 {"error":...} 形式返回）。
-func runCollect(config json.RawMessage, configPath string) any {
+// 采集期间会经 out 流式上报进度（type:"progress"），最终结果作为返回值。
+func runCollect(config json.RawMessage, configPath string, out io.Writer) any {
 	cfg, err := resolveConfig(config, configPath)
 	if err != nil {
 		return map[string]any{"error": "config: " + err.Error()}
 	}
-	return collectAll(cfg)
+	return collectAll(cfg, out)
 }
 
 func readMessage(r io.Reader, v any) error {
@@ -77,6 +79,9 @@ func readMessage(r io.Reader, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// stdoutMu 串行化 stdout 写入：进度消息由心跳协程与采集主流程并发上报。
+var stdoutMu sync.Mutex
+
 func writeMessage(w io.Writer, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -84,6 +89,8 @@ func writeMessage(w io.Writer, v any) error {
 	}
 	var lenBuf [4]byte
 	binary.LittleEndian.PutUint32(lenBuf[:], uint32(len(data)))
+	stdoutMu.Lock()
+	defer stdoutMu.Unlock()
 	if _, err := w.Write(lenBuf[:]); err != nil {
 		return err
 	}

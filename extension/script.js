@@ -98,26 +98,59 @@ function renderMetrics(data) {
   if (lastUpdated) lastUpdated.textContent = `更新于 ${data.last_updated ?? "—"}`;
 }
 
-async function fetchMetrics() {
-  const btn = document.getElementById("refresh-btn");
-  btn?.classList.add("spinning");
-  try {
-    const data = await collectMetrics();
-    await saveMetricsCache(data);
-    renderMetrics(data);
-  } catch (err) {
+/* 采集进度 UI：面板先展示最近一次缓存，采集进度由后台（background.js）
+   流式上报并持久化到 chrome.storage.local —— 面板关闭再打开也能看到
+   「正在采集到 xx」，完成后才显示「更新于 xx」。 */
+function renderProgressLine(p) {
+  const lu = document.getElementById("last-updated");
+  if (!lu) return;
+  const total = p.total || 0;
+  const done = p.done || 0;
+  const cur = p.current ? ` · 当前: ${escHtml(p.current)}` : "";
+  const err = p.error ? ` · ${escHtml(p.error)}` : "";
+  lu.textContent = `正在采集 ${done}/${total}${cur}${err}`;
+  document.getElementById("refresh-btn")?.classList.add("spinning");
+}
+
+function renderMetricsErrorLine(cached, err) {
+  const lu = document.getElementById("last-updated");
+  if (!lu) return;
+  lu.textContent = cached ? `缓存 ${cached.last_updated ?? "—"} (${escHtml(err.message)})` : "采集失败";
+  document.getElementById("refresh-btn")?.classList.remove("spinning");
+}
+
+/** 请求后台发起一次 SSH 采集（force=true 时重启正在进行的采集）。 */
+function requestMetricsCollection(force = false) {
+  chrome.runtime.sendMessage({ type: "start-collect", force }).catch(() => {});
+  const lu = document.getElementById("last-updated");
+  if (lu) lu.textContent = "正在采集…";
+  document.getElementById("refresh-btn")?.classList.add("spinning");
+}
+
+/** 后台广播的采集完成通知（成功或出错）。 */
+async function handleMetricsDone(msg) {
+  document.getElementById("refresh-btn")?.classList.remove("spinning");
+  if (msg.error) {
     const cached = await loadMetricsCache();
     if (cached) {
       renderMetrics(cached);
-      const lu = document.getElementById("last-updated");
-      if (lu) lu.textContent = `缓存 ${cached.last_updated ?? "—"} (${escHtml(err.message)})`;
+      renderMetricsErrorLine(cached, new Error(msg.error));
     } else {
-      renderMetricsError(err);
+      renderMetricsError(new Error(msg.error));
     }
-  } finally {
-    btn?.classList.remove("spinning");
+    return;
   }
+  await saveMetricsCache(msg.data);
+  renderMetrics(msg.data);
+  const lu = document.getElementById("last-updated");
+  if (lu) lu.textContent = `更新于 ${msg.data.last_updated ?? "—"}`;
 }
+
+// 实时进度 / 完成通知（后台广播；面板关闭期间由 initMetrics 读取持久化进度）
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === "metrics-progress") renderProgressLine(msg.progress);
+  else if (msg && msg.type === "metrics-done") handleMetricsDone(msg);
+});
 
 /** 服务器面板采集失败时的提示与操作按钮（宿主未安装 / 未配置 SSH 服务器等）。 */
 function renderMetricsError(err) {
@@ -166,13 +199,29 @@ function metricsStale(cached) {
   return Date.now() - t >= METRICS_STALE_MS;
 }
 
+/** 采集进度超过该时长无任何更新（宿主/后台已中断），视为失败并重新发起。 */
+const COLLECT_STALL_MS = 2 * 60 * 1000;
+
 async function initMetrics() {
   const cached = await loadMetricsCache();
   if (cached) renderMetrics(cached); // 先展示缓存
-  // 自动打开面板时: 前一次采集在 24h 内就不再发起 SSH 查询
-  if (metricsStale(cached)) await fetchMetrics();
+
+  const progress = await loadMetricsProgress();
+  if (progress && progress.running) {
+    const t = Date.parse(progress.lastEventAt || progress.startedAt || "");
+    if (!Number.isNaN(t) && Date.now() - t > COLLECT_STALL_MS) {
+      // 采集疑似中断（浏览器/宿主异常退出），重新发起
+      requestMetricsCollection(false);
+    } else {
+      renderProgressLine(progress);
+    }
+    return;
+  }
+
+  // 面板打开时: 前一次采集在 24h 内就不再发起 SSH 查询
+  if (metricsStale(cached)) requestMetricsCollection(false);
 }
-document.getElementById("refresh-btn").addEventListener("click", fetchMetrics); // 手动刷新始终强制采集
+document.getElementById("refresh-btn").addEventListener("click", () => requestMetricsCollection(true)); // 手动刷新始终强制重新采集
 authReady.then(() => initMetrics());
 
 /* ============================================================

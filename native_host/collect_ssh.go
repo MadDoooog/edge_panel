@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -52,30 +54,116 @@ type CollectResult struct {
 	Servers     []Server `json:"servers"`
 }
 
+// Progress 是宿主流式上报的采集进度消息（type:"progress"）。采集期间会逐服务器
+// 上报状态变化，并每 10s 发一次心跳（Heartbeat）保活；最终结果仍以
+// {"last_updated":...,"servers":[...]} 一条消息返回（无 type 字段，扩展据此区分）。
+type Progress struct {
+	Type      string `json:"type"` // 恒为 "progress"
+	Total     int    `json:"total"`
+	Done      int    `json:"done"`
+	Current   string `json:"current,omitempty"`
+	Status    string `json:"status,omitempty"` // start | collecting | ok | error
+	Phase     string `json:"phase,omitempty"`  // connect | collect | du
+	Error     string `json:"error,omitempty"`
+	Heartbeat bool   `json:"heartbeat,omitempty"`
+}
+
+// progressState 保存当前采集进度；心跳协程与采集主流程并发读写。
+type progressState struct {
+	mu      sync.Mutex
+	total   int
+	done    int
+	current string
+	status  string
+	phase   string
+	err     string
+}
+
+func (ps *progressState) update(done int, current, status, phase, err string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.done, ps.current, ps.status, ps.phase, ps.err = done, current, status, phase, err
+}
+
+func (ps *progressState) snapshot() Progress {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return Progress{
+		Type:    "progress",
+		Total:   ps.total,
+		Done:    ps.done,
+		Current: ps.current,
+		Status:  ps.status,
+		Phase:   ps.phase,
+		Error:   ps.err,
+	}
+}
+
+func emitProgress(out io.Writer, p Progress) {
+	_ = writeMessage(out, p)
+}
+
 const sshTimeout = 15 * time.Second
 const duTimeout = 120 * time.Second
+const heartbeatInterval = 10 * time.Second
 
 // collectAll 遍历 config 中的 SSH 目标，逐个采集磁盘/CPU/内存/du。
-func collectAll(cfg *Config) CollectResult {
+// 采集期间经 out 流式上报进度（writeMessage 已加锁，可并发调用）。
+func collectAll(cfg *Config, out io.Writer) CollectResult {
 	now := time.Now().Format("2006-01-02T15:04:05")
 	result := CollectResult{LastUpdated: now, Servers: []Server{}}
 
+	var targets []Target
 	for _, t := range cfg.Targets {
-		if t.Type != "ssh" {
-			continue
+		if t.Type == "ssh" {
+			targets = append(targets, t)
 		}
+	}
+	total := len(targets)
+
+	st := &progressState{total: total}
+	st.update(0, "", "start", "", "")
+	emitProgress(out, st.snapshot())
+
+	// 心跳保活：du 单次最长 120s，期间若无消息，扩展侧 service worker 可能被
+	// 判定空闲回收导致采集中断；每 10s 上报一次进度即可持续唤醒。
+	stopHB := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				p := st.snapshot()
+				p.Heartbeat = true
+				emitProgress(out, p)
+			case <-stopHB:
+				return
+			}
+		}
+	}()
+
+	for i, t := range targets {
 		name := t.Name
 		if name == "" {
 			name = t.Host
 		}
+
+		st.update(i, name, "collecting", "connect", "")
+		emitProgress(out, st.snapshot())
 
 		client, err := connectSSH(t, cfg.SSHDefaults)
 		if err != nil {
 			result.Servers = append(result.Servers, Server{
 				Name: name, Status: "error", CollectedAt: now,
 			})
+			st.update(i+1, name, "error", "connect", err.Error())
+			emitProgress(out, st.snapshot())
 			continue
 		}
+
+		st.update(i, name, "collecting", "collect", "")
+		emitProgress(out, st.snapshot())
 
 		srv := Server{
 			Name:        name,
@@ -86,6 +174,8 @@ func collectAll(cfg *Config) CollectResult {
 			Disks:       collectDisks(client),
 		}
 		if len(cfg.DuPaths) > 0 {
+			st.update(i, name, "collecting", "du", "")
+			emitProgress(out, st.snapshot())
 			du := map[string][]DuItem{}
 			for _, p := range cfg.DuPaths {
 				du[p] = collectDU(client, p)
@@ -94,7 +184,11 @@ func collectAll(cfg *Config) CollectResult {
 		}
 		_ = client.Close()
 		result.Servers = append(result.Servers, srv)
+		st.update(i+1, name, "ok", "", "")
+		emitProgress(out, st.snapshot())
 	}
+
+	close(stopHB)
 	return result
 }
 

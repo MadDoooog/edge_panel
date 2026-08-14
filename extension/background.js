@@ -1,79 +1,8 @@
-// 点击工具栏图标 → 在右侧打开侧边栏
+// 点击工具栏图标 → 打开/关闭右侧侧边栏。openPanelOnActionClick 让图标成为
+// 手动开关：面板关闭时点击打开，打开时再点关闭。不做任何自动开/关。
 chrome.sidePanel
   .setPanelBehavior({ openPanelOnActionClick: true })
   .catch((err) => console.error("setPanelBehavior failed:", err));
-
-/* ============================================================
-   侧边栏自动关闭(新标签页仪表盘模式)
-   规则: 活动标签不是浏览器新标签页 (edge://newtab / chrome://newtab)
-   时自动关闭侧边栏;切回新标签页时保持打开。工具栏图标仍可手动打开。
-   注: windows.onFocusChanged 仅用于「焦点切到另一个浏览器窗口」时按新窗口
-   的活动标签关闭;OS 级失焦(WINDOW_ID_NONE)与同一窗口重新聚焦不关闭面板
-   —— 点击其他软件等操作不应让面板消失。
-   注: 新标签页「自动打开」被浏览器手势限制排除 —— chrome.sidePanel.open()
-   必须由用户手势触发,而 tabs 生命周期事件不携带手势(实测在
-   onCreated/onUpdated/onActivated 中同步调用 open() 仍报 "may only be
-   called in response to a user gesture")。因此面板打开需在目标页上手动
-   点工具栏图标,自动部分仅保留「离开即关闭」。
-   注: chrome.sidePanel.close() 需 Chrome/Edge 141+,旧版本仅降级为
-   不自动关闭(特性检测,不报错)。
-   ============================================================ */
-const NEW_TAB_URL_RE = /^(?:chrome|edge):\/\/newtab(\/.*)?$/i;
-const isNewTabUrl = (url) => !!url && NEW_TAB_URL_RE.test(url);
-
-function closePanel(windowId) {
-  if (chrome.sidePanel.close) {
-    chrome.sidePanel.close({ windowId }).catch(() => {});
-  }
-}
-
-// 活动标签不是新标签页就关闭面板。about:blank 视为新标签页的过渡态
-// (Ctrl+T 新建瞬间 URL 为 about:blank),不触发关闭,避免面板闪关。
-function closeIfNotNewTab(tab, windowId) {
-  if (!tab || !tab.url) return;
-  if (tab.url === "about:blank") return;
-  if (!isNewTabUrl(tab.url)) closePanel(windowId ?? tab.windowId);
-}
-
-// 标签页内导航 / 加载完成(如新标签页由 about:blank → edge://newtab)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!tab.active) return; // 只处理当前活动标签,避免后台标签干扰
-  if (changeInfo.status === "complete" || changeInfo.url) {
-    closeIfNotNewTab(tab);
-  }
-});
-
-// 切换活动标签
-chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
-  chrome.tabs
-    .get(tabId)
-    .then((tab) => closeIfNotNewTab(tab, windowId))
-    .catch(() => {});
-});
-
-// 窗口焦点变化：仅当焦点切换到了「另一个浏览器窗口」时按新窗口的活动标签关闭面板。
-// OS 级失焦（点击其他软件 → onFocusChanged(WINDOW_ID_NONE)）与同一窗口重新聚焦
-// （切回原 Edge 窗口）都不关闭面板。
-let lastFocusedWindowId = null;
-chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) return; // 失焦，不处理
-  if (windowId === lastFocusedWindowId) return; // 同一窗口重新聚焦，不处理
-  lastFocusedWindowId = windowId;
-  chrome.tabs
-    .query({ active: true, windowId })
-    .then(([tab]) => closeIfNotNewTab(tab, windowId))
-    .catch(() => {});
-});
-
-// 浏览器启动 / 扩展加载时按当前活动标签初始化
-function syncActiveTab() {
-  chrome.tabs
-    .query({ active: true, lastFocusedWindow: true })
-    .then(([tab]) => closeIfNotNewTab(tab))
-    .catch(() => {});
-}
-chrome.runtime.onStartup.addListener(syncActiveTab);
-chrome.runtime.onInstalled.addListener(syncActiveTab);
 
 /* ============================================================
    DNR 头注入：扩展页 fetch 无法设置 Cookie/Origin/Referer 等
@@ -175,9 +104,140 @@ async function updateAuthRules() {
 // 启动即注入（动态规则持久化、幂等）；侧边栏每次打开时经 onMessage 刷新 cookie
 updateAuthRules();
 chrome.runtime.onInstalled.addListener(() => updateAuthRules());
+
+/* ============================================================
+   SSH 采集（Native Messaging → Go 宿主）
+   采集由 service worker 持有，流式接收宿主上报的进度 —— 这样即使
+   侧边栏关闭，采集仍在后台继续（宿主每 10s 心跳保活 SW）。进度写入
+   chrome.storage.local（metricsProgress），面板重新打开时先展示
+   「正在采集到 xx」，完成后展示「更新于 xx」；面板打开期间经
+   chrome.runtime.sendMessage 广播实时进度。
+   ============================================================ */
+const METRICS_CACHE_KEY = "metrics";
+const METRICS_PROGRESS_KEY = "metricsProgress";
+const NATIVE_HOST_NAME = "com.edge_panel.host";
+
+let collectRunId = 0; // 每次采集自增；被强制重启的旧连接回调据此忽略
+let collectPort = null;
+let collectActive = false;
+
+function metricsBroadcast(type, payload) {
+  // 面板未打开时无接收端，广播失败可忽略（进度已持久化，重开时读取）
+  chrome.runtime.sendMessage({ type, ...payload }).catch(() => {});
+}
+
+async function metricsPersistProgress(p) {
+  try {
+    await chrome.storage.local.set({ [METRICS_PROGRESS_KEY]: p });
+  } catch (err) {
+    console.error("[metrics] persist progress failed:", err);
+  }
+}
+
+async function metricsReadSshConfig() {
+  const obj = await chrome.storage.sync.get({ sshConfig: null });
+  return obj.sshConfig || null;
+}
+
+/** 采集结束（成功或出错）的收尾：落缓存/进度并广播。 */
+async function finishMetricsCollection(runId, { data, error }) {
+  if (runId !== collectRunId) return; // 已被新采集取代
+  collectActive = false;
+  const finishedAt = new Date().toISOString();
+  if (error) {
+    await metricsPersistProgress({ running: false, status: "error", error, finishedAt, lastEventAt: finishedAt });
+    metricsBroadcast("metrics-done", { error });
+    return;
+  }
+  await metricsPersistProgress({ running: false, status: "ok", finishedAt, lastEventAt: finishedAt });
+  try {
+    await chrome.storage.local.set({ [METRICS_CACHE_KEY]: data });
+  } catch (err) {
+    console.error("[metrics] save cache failed:", err);
+  }
+  metricsBroadcast("metrics-done", { data });
+}
+
+// 发起一次 SSH 采集。force=true 时中断正在进行的采集并重新开始（手动刷新语义）。
+function startMetricsCollection(force = false) {
+  if (collectActive) {
+    if (!force) return { ok: true, alreadyRunning: true };
+    try {
+      collectPort && collectPort.disconnect(); // 宿主进程随之退出
+    } catch (_) {}
+    collectPort = null;
+  }
+  const runId = ++collectRunId;
+  collectActive = true;
+
+  (async () => {
+    let port = null;
+    try {
+      const config = await metricsReadSshConfig();
+      const targets = (config && Array.isArray(config.targets) ? config.targets : []).filter((t) => t && t.host);
+      if (!targets.length) throw new Error("未配置 SSH 服务器");
+
+      port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+      collectPort = port;
+      const startedAt = new Date().toISOString();
+      const startP = { running: true, startedAt, done: 0, total: targets.length, status: "collecting", lastEventAt: startedAt };
+      await metricsPersistProgress(startP);
+      metricsBroadcast("metrics-progress", { progress: startP });
+
+      port.onMessage.addListener((msg) => {
+        if (runId !== collectRunId) return; // 旧连接被强制重启，忽略
+        if (msg && msg.type === "progress") {
+          const p = {
+            ...startP,
+            done: msg.done ?? 0,
+            total: msg.total ?? targets.length,
+            current: msg.current,
+            status: msg.status,
+            phase: msg.phase,
+            error: msg.error,
+            lastEventAt: new Date().toISOString(),
+          };
+          metricsPersistProgress(p);
+          metricsBroadcast("metrics-progress", { progress: p });
+          return;
+        }
+        // 最终结果：无 type:"progress" 标记
+        finishMetricsCollection(runId, msg && msg.error ? { error: msg.error } : { data: msg });
+        try {
+          port.disconnect();
+        } catch (_) {}
+      });
+
+      port.onDisconnect.addListener(() => {
+        if (runId !== collectRunId) return;
+        if (collectPort === port) collectPort = null;
+        if (!collectActive) return; // 主动断开（收到最终结果后）已处理
+        const errMsg = (chrome.runtime.lastError && chrome.runtime.lastError.message) || "native host disconnected";
+        finishMetricsCollection(runId, { error: errMsg });
+      });
+
+      port.postMessage({ type: "collect", config });
+    } catch (err) {
+      if (runId !== collectRunId) return;
+      finishMetricsCollection(runId, { error: String((err && err.message) || err) });
+      if (port) {
+        try {
+          port.disconnect();
+        } catch (_) {}
+      }
+    }
+  })();
+
+  return { ok: true };
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "refresh-auth") {
     updateAuthRules().then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: String(e) }));
     return true; // 异步响应
+  }
+  if (msg && msg.type === "start-collect") {
+    sendResponse(startMetricsCollection(msg.force === true));
+    return false; // 同步响应
   }
 });

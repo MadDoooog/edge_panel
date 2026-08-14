@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "edge-panel",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "浏览器侧边栏面板 — Cursor 用量 / 服务器磁盘 / Logshed / 阅读",
   "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "tabs", "storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads"],
+  "permissions": ["sidePanel", "storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads"],
   "host_permissions": [
     "*://cursor.com/*",
     "*://*.cursor.com/*",

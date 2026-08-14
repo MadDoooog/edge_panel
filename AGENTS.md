@@ -19,7 +19,7 @@ edge-panel/
 ├── package.sh              # 打包：交叉编译 Go 宿主 → 扩展+宿主+安装脚本 → dist/*.zip
 ├── extension/              # MV3 浏览器扩展（侧边栏面板，直连源站）
 │   ├── manifest.json       # 清单：sidePanel/storage/cookies/downloads + host_permissions + WAR
-│   ├── background.js       # 点击图标打开侧边栏 + declarativeNetRequest 动态规则
+│   ├── background.js       # 点击图标开关侧边栏 + declarativeNetRequest 动态规则 + SSH 采集（connectNative 流式进度）
 │   ├── sidepanel.html/css  # 单列布局面板
 │   ├── options.html/js     # 设置页（cursor、logshed、SSH 服务器；下载模板/导入）
 │   ├── yaml.js             # 极简 YAML 子集解析器（「导入配置」用）
@@ -49,15 +49,16 @@ bash package.sh
 - **扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers** —— 由 [background.js](extension/background.js) 的 `declarativeNetRequest` 动态规则在请求前注入（cookie 每次面板打开时经 `onMessage` 刷新）；所有直连 fetch 用 `credentials:"omit"` 避免 cookie 重复。新增直连源站时，记得同步更新 background 的 DNR 规则。
 - **Native 宿主必须在浏览器所在系统运行**（Windows 版 Edge → Windows 侧）。native messaging 只能拉起浏览器本机的进程。宿主与安装脚本由 `package.sh` 交叉编译后随扩展包分发，安装时由扩展从插件资源下载、用户双击 `install-edge-panel-host.bat` 用 `reg.exe` 注册 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\`。
 - 扩展页默认 CSP `script-src 'self'` —— 脚本必须用外部 `.js`（本目录已全部外置），**不要内联脚本**。
-- 定时刷新只在侧边栏打开期间进行（`script.js` 的 60s `setInterval`）；无 7×24 后台探测。
-- 需要 **Edge / Chrome 116+**（Side Panel API）。新标签页自动打开侧边栏不可行（`chrome.sidePanel.open()` 要求用户手势）；离开新标签页自动关闭依赖 `chrome.sidePanel.close()`（Edge 141+）。
+- 定时刷新只在侧边栏打开期间进行（`script.js` 的 60s `setInterval`）；无 7×24 后台探测。唯一例外：SSH 采集由 **background service worker** 持有（`chrome.runtime.connectNative` → 宿主流式上报进度 + 每 10s 心跳保活 SW），侧边栏关闭后采集继续，完成后即止。
+- 需要 **Edge / Chrome 116+**（Side Panel API）。侧边栏**只**由手动点击工具栏图标开关（`background.js` 的 `openPanelOnActionClick: true`，点击图标即开/关），不做任何自动开/关。
 
 ## 扩展模块
 
 - `extension/script.js` — UI 编排（面板渲染、60s 轮询、时钟/搜索）
 - `extension/feeds.js` — 知乎直连 + 归一化/去重/收藏/评论；`item_id` 格式保持 `zhihu:<type>:<id>`；视频条目过滤
 - `extension/cursor.js` — cursor.com 直连（数据函数带 `*Api` 后缀，避免与 script.js 的 UI 同名函数冲突）
-- `extension/metrics.js` — 侧边栏页面直接 `chrome.runtime.connectNative` 请求 Go 宿主；先渲染 `chrome.storage.local` 缓存再后台刷新；缓存 24h 内不重复查询
+- `extension/background.js` — 点击图标开关侧边栏 + DNR 头注入 + **SSH 采集持有者**（connectNative 流式接收宿主进度 → 持久化到 `chrome.storage.local` 的 `metricsProgress` 并广播到面板）
+- `extension/metrics.js` — 页面侧辅助：采集缓存/进度读写（`metrics` / `metricsProgress`）、宿主安装引导、错误识别；不再直接 connectNative
 - `extension/logshed.js` — 探测 + 历史（chrome.storage.local）；面板可见期间每 60s 探测一次
 - `extension/cookies.js` — `chrome.cookies` 读取辅助（cursor.com 的 `WorkosCursorSessionToken`、zhihu.com 的 `z_c0`）
 - `extension/options.html/js` — 存 Cursor `team_id/user_id/user_email` 与 Logshed URL（这些不是 cookie，无法自动读取）
@@ -73,6 +74,7 @@ bash package.sh
 
 - 协议：stdin/stdout 各消息为 **4 字节小端长度前缀 + UTF-8 JSON**（标准 native messaging）
 - 请求：`{"type":"collect","config":{...}}`。`config` 为**内联采集配置**（JSON/YAML 均可，宿主用 `yaml.Unmarshal` 解析，yaml.v3 兼容 JSON 且按 yaml 标签匹配 `ssh_defaults`/`du_paths`/`targets` 键）；也可用 `config_path` 指向磁盘文件
+- **采集期间流式上报进度**：`{"type":"progress","done":N,"total":M,"current":"name","status":"start|collecting|ok|error","phase":"connect|collect|du","error":"...","heartbeat":false}` —— 逐服务器状态变化各上报一次，长耗时（du 最长 120s）期间每 10s 发一次心跳（`heartbeat:true`）保活扩展侧 service worker；最终结果仍以一条 `{"last_updated":...,"servers":[...]}` 返回（无 `type` 字段，扩展据此区分进度与结果）
 - 响应：`{"last_updated":...,"servers":[...]}` 或 `{"error":"..."}`
 - **只采 `type:ssh` 目标**（df + du），不做本机采集
 - 配置优先级：内联 `config` > `config_path` / 环境变量 `EDGE_PANEL_CONFIG`。不再有编译期硬编码路径（旧的 WSL UNC 默认路径已删除）
