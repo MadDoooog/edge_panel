@@ -1,0 +1,182 @@
+/* ============================================================
+   theme.css — 浏览器主题自适应的设计令牌与基础控件
+   亮/暗跟随系统（与 Edge / Chrome 自身主题一致），新标签页与设置页共用。
+   取值贴近浏览器原生界面：Google/Material 中性灰 + 蓝色强调色。
+   ============================================================ */
+:root {
+  color-scheme: light dark;
+
+  --bg:            #f8f9fa;
+  --surface:       #ffffff;
+  --surface-2:     #f1f3f4;
+  --surface-3:     #e8eaed;
+  --border:        #dadce0;
+  --border-strong: #bdc1c6;
+
+  --text:          #202124;
+  --text-muted:    #5f6368;
+  --text-faint:    #80868b;
+
+  --accent:        #1a73e8;
+  --accent-hover:  #1765cc;
+  --accent-weak:   rgba(26, 115, 232, 0.08);
+  --accent-border: rgba(26, 115, 232, 0.5);
+
+  --ok:            #188038;
+  --warn:          #b06000;
+  --danger:        #d93025;
+  --ok-weak:       rgba(24, 128, 56, 0.1);
+  --warn-weak:     rgba(176, 96, 0, 0.1);
+  --danger-weak:   rgba(217, 48, 37, 0.1);
+
+  --shadow-1: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --shadow-2: 0 1px 3px rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
+
+  --radius:    12px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
+
+  --font:      system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Roboto Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:            #202124;
+    --surface:       #292a2d;
+    --surface-2:     #35363a;
+    --surface-3:     #3c4043;
+    --border:        #3c4043;
+    --border-strong: #5f6368;
+
+    --text:          #e8eaed;
+    --text-muted:    #9aa0a6;
+    --text-faint:    #80868b;
+
+    --accent:        #8ab4f8;
+    --accent-hover:  #aecbfa;
+    --accent-weak:   rgba(138, 180, 248, 0.14);
+    --accent-border: rgba(138, 180, 248, 0.5);
+
+    --ok:            #81c995;
+    --warn:          #fdd663;
+    --danger:        #f28b82;
+    --ok-weak:       rgba(129, 201, 149, 0.14);
+    --warn-weak:     rgba(253, 214, 99, 0.14);
+    --danger-weak:   rgba(242, 139, 130, 0.14);
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+    --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.15);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 表单控件（贴近浏览器原生观感）───────────────────── */
+input, textarea, select, button { font-family: inherit; font-size: 13px; color: var(--text); }
+
+input[type="text"], input[type="email"], input[type="number"], input[type="password"],
+input[type="date"], textarea, select {
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+input[type="text"]:focus, input[type="email"]:focus, input[type="number"]:focus,
+input[type="password"]:focus, input[type="date"]:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-weak);
+}
+input[type="number"] { text-align: right; font-family: var(--font-mono); }
+input::placeholder, textarea::placeholder { color: var(--text-faint); }
+textarea { resize: vertical; font-family: var(--font-mono); font-size: 12px; line-height: 1.45; }
+select { padding: 6px 4px; }
+
+input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; }
+input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+/* ── 按钮 ─────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-1); }
+@media (prefers-color-scheme: dark) { .btn-primary { color: #202124; } }
+
+.btn-outline { background: transparent; color: var(--accent); border-color: var(--border-strong); }
+.btn-outline:hover { background: var(--accent-weak); border-color: var(--accent-border); }
+
+.btn-text {
+  background: transparent;
+  color: var(--accent);
+  border: none;
+  padding: 6px 8px;
+  border-radius: var(--radius-xs);
+}
+.btn-text:hover { background: var(--accent-weak); }
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-icon:hover { background: var(--surface-2); color: var(--text); }
+.btn-icon.spinning { animation: btn-spin 0.6s linear; }
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+
+.btn-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: var(--radius-xs);
+}
+.btn-link:hover { background: var(--accent-weak); }
+
+/* ── 卡片 ─────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}

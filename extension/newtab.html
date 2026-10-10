@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>新标签页</title>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="newtab.css" />
+</head>
+<body>
+  <a id="open-options" href="options.html" title="设置">⚙</a>
+
+  <main id="board">
+    <!-- 1. Cursor 费用 -->
+    <section class="card" id="card-cursor" data-card="cursor">
+      <div class="card-head" title="拖动移动 · 单击折叠">
+        <span class="caret" aria-hidden="true"></span>
+        <img src="cursor-favicon.svg" class="favicon" alt="" />
+        <span class="card-title">Cursor 费用</span>
+        <span class="card-meta" id="cursor-range"></span>
+        <button type="button" class="icon-btn" id="cursor-refresh" title="刷新">↻</button>
+        <a class="icon-btn" href="https://cursor.com/cn/dashboard/usage" target="_blank" rel="noopener" title="在新标签页打开">↗</a>
+      </div>
+      <div class="card-body">
+        <div class="chart-wrap">
+          <canvas id="cursor-chart"></canvas>
+          <div class="chart-empty" id="cursor-empty" hidden>暂无数据或 Cookie 已过期</div>
+        </div>
+        <div class="chips" id="cursor-stats"></div>
+      </div>
+    </section>
+
+    <!-- 2. 服务器磁盘 -->
+    <section class="card" id="card-servers" data-card="servers">
+      <div class="card-head" title="拖动移动 · 单击折叠">
+        <span class="caret" aria-hidden="true"></span>
+        <span class="card-title">服务器磁盘</span>
+        <span class="card-meta" id="servers-updated">加载中…</span>
+        <button type="button" class="icon-btn" id="servers-refresh" title="立即刷新">↻</button>
+      </div>
+      <div class="card-body">
+        <div id="servers-container" class="servers-container">
+          <div class="loading">正在获取数据…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Release Matrix 跳转 -->
+    <section class="card card-mini" id="card-matrix" data-card="matrix">
+      <div class="card-head" title="拖动移动 · 单击折叠">
+        <span class="caret" aria-hidden="true"></span>
+        <span class="card-title">Matrix</span>
+        <span class="card-meta" id="matrix-version"></span>
+        <a class="icon-btn" id="matrix-open" href="#" target="_blank" rel="noopener" title="在新标签页打开">↗</a>
+      </div>
+      <div class="card-body">
+        <a class="matrix-link" id="matrix-link" href="#" target="_blank" rel="noopener">打开 Release Matrix</a>
+      </div>
+    </section>
+  </main>
+
+  <script src="chart.umd.min.js"></script>
+  <script src="cookies.js"></script>
+  <script src="metrics.js"></script>
+  <script src="cursor.js"></script>
+  <script src="newtab.js"></script>
+</body>
+</html>

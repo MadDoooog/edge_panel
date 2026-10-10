@@ -1,0 +1,193 @@
+/* ============================================================
+   newtab.css — 新标签页悬浮仪表盘
+   外观跟随浏览器主题（见 theme.css）：卡片浮在空白页上，
+   可拖动、单击标题栏折叠。
+   ============================================================ */
+html, body { height: 100%; }
+body { overflow: hidden; }
+
+/* 空白页只留极淡的底色层次，贴近浏览器原生新标签页 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 50% at 50% 0%, var(--accent-weak), transparent 70%);
+  pointer-events: none;
+}
+
+#open-options {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  font-size: 15px;
+  color: var(--text-muted);
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  box-shadow: var(--shadow-1);
+  transition: background 0.15s, color 0.15s;
+}
+#open-options:hover { background: var(--surface-2); color: var(--text); }
+
+/* ── 悬浮卡片 ─────────────────────────────────────────── */
+.card {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 24px);
+  box-shadow: var(--shadow-2);
+}
+.card.dragging { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28); }
+.card.dragging .card-body { pointer-events: none; }
+
+#card-cursor  { width: 440px; }
+#card-servers { width: 520px; }
+#card-matrix  { width: 244px; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  user-select: none;
+}
+.card.collapsed .card-head { border-bottom: none; }
+
+.caret { flex: 0 0 auto; color: var(--text-faint); font-size: 10px; }
+.caret::before { content: "▾"; }
+.card.collapsed .caret::before { content: "▸"; }
+.card.collapsed .card-body { display: none; }
+
+.favicon { width: 15px; height: 15px; border-radius: 3px; }
+
+.card-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-meta {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.card-body { overflow: auto; }
+
+[hidden] { display: none !important; }
+
+/* ── Cursor 费用 ──────────────────────────────────────── */
+.chart-wrap { position: relative; height: 186px; padding: 8px 10px 2px; }
+.chart-wrap canvas { display: block; }
+
+.chart-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
+}
+.stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+.stat-label { color: var(--text-muted); }
+.stat-cnt { font-family: var(--font-mono); font-weight: 600; color: var(--text); }
+.stat-model { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 服务器磁盘 ───────────────────────────────────────── */
+.servers-container { display: flex; flex-direction: column; }
+
+.server-card { padding: 9px 12px; border-top: 1px solid var(--border); }
+.server-card:first-child { border-top: none; }
+
+.server-cols { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; align-items: start; }
+.server-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.server-name { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12.5px; font-weight: 500; }
+.server-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.status-dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+.status-dot.ok { background: var(--ok); }
+.status-dot.error { background: var(--danger); }
+
+.error-msg { color: var(--danger); font-size: 12px; }
+
+.server-usage-bar { height: 5px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+.server-usage-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s ease; }
+.server-usage-fill.danger { background: var(--danger); }
+
+.server-usage { display: flex; align-items: baseline; gap: 5px; font-size: 11.5px; color: var(--text-muted); }
+.server-usage-pct { font-family: var(--font-mono); font-weight: 600; color: var(--text); }
+
+.server-du { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-left: 10px; border-left: 1px solid var(--border); }
+.du-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11.5px; }
+.du-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
+.du-size { flex-shrink: 0; font-family: var(--font-mono); color: var(--text); }
+
+.loading { padding: 26px 20px; text-align: center; color: var(--text-muted); font-size: 12.5px; }
+
+.metric-actions { display: flex; gap: 8px; justify-content: center; padding: 0 12px 14px; }
+.metric-action {
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.metric-action:hover { background: var(--accent-weak); border-color: var(--accent-border); }
+.metric-action:disabled { opacity: 0.6; cursor: default; }
+
+/* ── Matrix 跳转 ──────────────────────────────────────── */
+.matrix-link {
+  display: block;
+  margin: 10px 12px 12px;
+  padding: 8px 10px;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent);
+  border-radius: var(--radius-xs);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.matrix-link:hover { background: var(--accent-hover); }
+@media (prefers-color-scheme: dark) { .matrix-link { color: #202124; } }

@@ -2,179 +2,144 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>edge-panel 设置</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, "Segoe UI", sans-serif;
-      background: #0d1218;
-      color: #d4dee8;
-      padding: 12px 16px 16px;
-      width: 100%;
-    }
-    #back-link {
-      display: inline-block;
-      margin-bottom: 10px;
-      padding: 3px 10px;
-      font-size: 0.75rem;
-      color: #4ee8c5;
-      background: rgba(78, 232, 197, 0.08);
-      border: 1px solid rgba(78, 232, 197, 0.25);
-      border-radius: 6px;
-      text-decoration: none;
-      cursor: pointer;
-    }
-    #back-link:hover { background: rgba(78, 232, 197, 0.16); }
-    h1 { font-size: 1rem; margin-bottom: 12px; color: #4ee8c5; }
-    h2 { font-size: 0.8rem; margin: 14px 0 6px; color: #7a8f9e; letter-spacing: 0.05em; }
-    label { display: block; font-size: 0.78rem; color: #7a8f9e; margin-bottom: 10px; }
-    input {
-      width: 100%;
-      margin-top: 4px;
-      padding: 7px 9px;
-      background: #131a22;
-      border: 1px solid rgba(110,150,180,0.28);
-      border-radius: 6px;
-      color: #d4dee8;
-      font-size: 0.85rem;
-      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-    }
-    input:focus { outline: 2px solid #4ee8c5; outline-offset: 1px; }
-    button {
-      margin-top: 16px;
-      padding: 8px 22px;
-      width: 100%;
-      background: #4ee8c5;
-      color: #070a0e;
-      border: none;
-      border-radius: 6px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    button:hover { filter: brightness(1.1); }
-    .status {
-      display: block;
-      margin-top: 6px;
-      font-size: 0.8rem;
-      color: #3dd68c;
-      text-align: center;
-    }
-    .hint { font-size: 0.75rem; color: #7a8f9e; margin: -4px 0 10px; line-height: 1.5; }
-    textarea {
-      width: 100%;
-      margin-top: 4px;
-      padding: 7px 9px;
-      background: #131a22;
-      border: 1px solid rgba(110,150,180,0.28);
-      border-radius: 6px;
-      color: #d4dee8;
-      font-size: 0.85rem;
-      font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-      resize: vertical;
-      min-height: 56px;
-    }
-    textarea:focus { outline: 2px solid #4ee8c5; outline-offset: 1px; }
-    .target-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      padding: 8px;
-      margin-bottom: 8px;
-      border: 1px solid rgba(110,150,180,0.2);
-      border-radius: 8px;
-      background: rgba(255,255,255,0.02);
-    }
-    .target-row input { margin-top: 0; padding: 6px 8px; font-size: 0.78rem; }
-    .del-btn {
-      grid-column: 1 / -1;
-      margin-top: 2px;
-      padding: 5px;
-      width: 100%;
-      background: transparent;
-      color: #f85149;
-      border: 1px solid rgba(248,81,73,0.4);
-      border-radius: 6px;
-      font-size: 0.75rem;
-      cursor: pointer;
-    }
-    .del-btn:hover { background: rgba(248,81,73,0.12); filter: none; }
-    .add-target-btn {
-      margin-top: 6px;
-      width: 100%;
-      padding: 7px;
-      font-size: 0.78rem;
-      background: rgba(78,232,197,0.12);
-      color: #4ee8c5;
-      border: 1px solid rgba(78,232,197,0.3);
-    }
-    .add-target-btn:hover { background: rgba(78,232,197,0.2); }
-    .btn-row { display: flex; gap: 8px; margin-top: 16px; }
-    .btn-row button { flex: 1; margin-top: 0; }
-    .btn-secondary {
-      background: rgba(78,232,197,0.12);
-      color: #4ee8c5;
-      border: 1px solid rgba(78,232,197,0.3);
-      font-weight: 500;
-    }
-    .btn-secondary:hover { background: rgba(78,232,197,0.2); }
-  </style>
+  <link rel="stylesheet" href="theme.css" />
+  <link rel="stylesheet" href="options.css" />
 </head>
 <body>
-  <a id="back-link" href="sidepanel.html">← 返回</a>
-  <h1>设置</h1>
-  <p class="hint">Cookie（Cursor 登录态、知乎 z_c0）会自动读取。<br>
-  Cursor 的 team_id / user_id 也会尝试从 cookie 自动推导，<b>通常只需填 user_email</b>。</p>
+  <div class="page">
+    <header class="page-head">
+      <h1>edge-panel 设置</h1>
+      <a id="back-link" class="btn-link" href="newtab.html">返回新标签页</a>
+    </header>
 
-  <h2>Cursor 用量 / 排名</h2>
-  <label>team_id
-    <input id="cursor-team-id" type="text" spellcheck="false" />
-  </label>
-  <label>user_id
-    <input id="cursor-user-id" type="text" spellcheck="false" />
-  </label>
-  <label>user_email
-    <input id="cursor-user-email" type="email" spellcheck="false" />
-  </label>
+    <section class="card">
+      <h2 class="card-title">Cursor 用量</h2>
+      <div class="row">
+        <label for="cursor-team-id">team_id</label>
+        <input id="cursor-team-id" class="w-md" type="text" spellcheck="false" />
+      </div>
+      <div class="row">
+        <label for="cursor-user-id">user_id</label>
+        <input id="cursor-user-id" class="w-md" type="text" spellcheck="false" />
+      </div>
+      <div class="row">
+        <label for="cursor-user-email">user_email</label>
+        <input id="cursor-user-email" class="w-md" type="email" spellcheck="false" />
+      </div>
+      <p class="note">Cookie 自动读取；team_id / user_id 留空则从 cookie 推导。</p>
+    </section>
 
-  <h2>Logshed 探测</h2>
-  <label>Logshed URL
-    <input id="logshed-url" type="text" spellcheck="false" />
-  </label>
+    <section class="card">
+      <h2 class="card-title">Release Matrix</h2>
+      <div class="row">
+        <label for="release-matrix-version">version</label>
+        <input id="release-matrix-version" class="w-sm" type="text" spellcheck="false" placeholder="26q3" />
+      </div>
+      <p class="note">新标签页 Matrix 卡片使用的版本号。</p>
+    </section>
 
-  <h2>Release Matrix 链接</h2>
-  <label>version（侧边栏 Logshed 左侧链接的版本号，如 26q3）
-    <input id="release-matrix-version" type="text" spellcheck="false" placeholder="26q3" />
-  </label>
-  <p class="hint">链接为 <code>…/release_matrix/releases/index?mo=t&amp;region=hkm%252Cisc%252Csea&amp;version=…</code>，version 取这里的值。</p>
+    <section class="card">
+      <h2 class="card-title">持仓（DeepSeek 会话浮层）</h2>
+      <div class="row">
+        <label for="fin-session-ids">会话 id</label>
+        <textarea id="fin-session-ids" class="w-lg" rows="2" spellcheck="false" placeholder="https://chat.deepseek.com/a/chat/s/…"></textarea>
+      </div>
+      <p class="note">每行一个，可直接粘整条 URL。只有这些会话显示浮层。</p>
 
-  <h2>SSH 服务器（服务器面板数据源）</h2>
-  <p class="hint">服务器磁盘经 Native Messaging → Go 宿主采集。可下载模板填写后导入，也可直接在下表填写。<br>
-  各服务器留空的用户名/密码/密钥将使用下方默认值。</p>
-  <label>默认用户名
-    <input id="ssh-username" type="text" spellcheck="false" placeholder="ssh 用户名" />
-  </label>
-  <label>默认密码
-    <input id="ssh-password" type="password" spellcheck="false" placeholder="ssh 密码（留空用密钥）" />
-  </label>
-  <label>默认密钥文件
-    <input id="ssh-key-file" type="text" spellcheck="false" placeholder="~/.ssh/id_rsa（可选）" />
-  </label>
-  <label>du -sh 检查目录（每行一个，可选）
-    <textarea id="ssh-du-paths" spellcheck="false" placeholder="/home/your_data_dir"></textarea>
-  </label>
+      <div class="subhead">持仓列表<span class="subnote">代码可写 510300 或 sh510300</span></div>
+      <div class="grid-scroll">
+        <div class="grid-head hold">
+          <span>代码</span><span>名称（可留空）</span><span>类别</span><span>份额</span><span>成本</span><span>对账日</span><span></span>
+        </div>
+        <div id="fin-holdings"></div>
+      </div>
+      <div class="add-row">
+        <button type="button" id="fin-add-holding" class="btn-text">+ 添加持仓</button>
+      </div>
 
-  <label>服务器列表</label>
-  <div id="ssh-targets"></div>
-  <button type="button" id="ssh-add-target" class="add-target-btn">+ 添加服务器</button>
+      <div class="subhead">口径与纪律</div>
+      <div class="row">
+        <label for="fin-emergency">应急金</label>
+        <span class="inline"><input id="fin-emergency" class="w-num" type="number" min="0" step="1000" spellcheck="false" /><span class="unit">元</span></span>
+      </div>
+      <div class="row">
+        <label for="fin-investable">可投资现金</label>
+        <span class="inline"><input id="fin-investable" class="w-num" type="number" min="0" step="1000" spellcheck="false" /><span class="unit">元</span></span>
+      </div>
+      <div class="row">
+        <label for="fin-target">目标占比</label>
+        <span class="inline"><input id="fin-target" class="w-xs" type="number" min="1" max="100" step="1" spellcheck="false" /><span class="unit">% 每类</span></span>
+      </div>
+      <div class="row">
+        <label for="fin-band-low">占比下限 / 上限</label>
+        <span class="inline">
+          <input id="fin-band-low" class="w-xs" type="number" min="0" max="100" step="1" spellcheck="false" />
+          <input id="fin-band-high" class="w-xs" type="number" min="0" max="100" step="1" spellcheck="false" />
+          <span class="unit">%</span>
+        </span>
+      </div>
+      <div class="row">
+        <label for="fin-fee-bp">佣金费率</label>
+        <span class="inline"><input id="fin-fee-bp" class="w-xs" type="number" min="0" step="0.1" spellcheck="false" /><span class="unit">万分之</span></span>
+      </div>
+      <div class="row">
+        <label for="fin-fee-min">最低佣金</label>
+        <span class="inline"><input id="fin-fee-min" class="w-xs" type="number" min="0" step="1" spellcheck="false" /><span class="unit">元</span></span>
+      </div>
+      <label class="row-check">
+        <input id="fin-unmatched-chip" type="checkbox" />
+        <span>其他会话页显示「未匹配」角标</span>
+      </label>
+      <p class="note" id="fin-stored">读取中…</p>
+    </section>
 
-  <div class="btn-row">
-    <button type="button" id="download-template-btn" class="btn-secondary">下载配置模板</button>
-    <button type="button" id="import-config-btn" class="btn-secondary">导入配置</button>
+    <section class="card">
+      <h2 class="card-title">SSH 服务器</h2>
+      <div class="row">
+        <label for="ssh-username">默认用户名</label>
+        <input id="ssh-username" class="w-md" type="text" spellcheck="false" />
+      </div>
+      <div class="row">
+        <label for="ssh-password">默认密码</label>
+        <input id="ssh-password" class="w-md" type="password" spellcheck="false" />
+      </div>
+      <div class="row">
+        <label for="ssh-key-file">默认密钥</label>
+        <input id="ssh-key-file" class="w-md" type="text" spellcheck="false" placeholder="~/.ssh/id_rsa" />
+      </div>
+      <div class="row">
+        <label for="ssh-du-paths">du 目录</label>
+        <textarea id="ssh-du-paths" class="w-lg" rows="3" spellcheck="false" placeholder="/home/your_data_dir"></textarea>
+      </div>
+      <p class="note">du 目录每行一个；服务器留空的凭据用上面的默认值。</p>
+
+      <div class="subhead">服务器列表</div>
+      <div class="grid-scroll">
+        <div class="grid-head ssh">
+          <span>名称</span><span>主机</span><span>端口</span><span>用户名</span><span>密码</span><span>密钥</span><span></span>
+        </div>
+        <div id="ssh-targets"></div>
+      </div>
+      <div class="add-row">
+        <button type="button" id="ssh-add-target" class="btn-text">+ 添加服务器</button>
+      </div>
+      <div class="actions">
+        <button type="button" id="download-template-btn" class="btn-outline">下载配置模板</button>
+        <button type="button" id="import-config-btn" class="btn-outline">导入配置</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="actions">
+        <button type="button" id="save-btn" class="btn-primary">保存</button>
+        <span id="save-status" class="status"></span>
+      </div>
+    </section>
+
+    <input type="file" id="import-file" accept=".yaml,.yml,.json" hidden />
   </div>
-  <input type="file" id="import-file" accept=".yaml,.yml,.json" style="display:none" />
-
-  <button type="submit" id="save-btn">保存</button>
-  <span id="save-status" class="status"></span>
 
   <script src="yaml.js"></script>
   <script src="options.js"></script>

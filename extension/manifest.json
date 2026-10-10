@@ -1,26 +1,33 @@
 {
   "manifest_version": 3,
   "name": "edge-panel",
-  "version": "0.4.1",
-  "description": "浏览器侧边栏面板 — Cursor 用量 / 服务器磁盘 / Logshed / 阅读",
-  "minimum_chrome_version": "116",
-  "permissions": ["sidePanel", "storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads"],
+  "version": "0.6.0",
+  "description": "新标签页悬浮仪表盘 — Cursor 费用 / 服务器磁盘 / Matrix 跳转；DeepSeek 会话页持仓浮层",
+  "minimum_chrome_version": "101",
+  "permissions": ["storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads", "clipboardWrite"],
   "host_permissions": [
     "*://cursor.com/*",
     "*://*.cursor.com/*",
-    "*://*.zhihu.com/*",
-    "http://logshed-search-eu.prod.mypna.com/*"
+    "*://qt.gtimg.cn/*",
+    "*://hq.sinajs.cn/*"
   ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "edge-panel"
+    "default_title": "edge-panel 设置"
   },
   "options_page": "options.html",
-  "side_panel": {
-    "default_path": "sidepanel.html"
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["deepseek-overlay.js"],
+      "run_at": "document_idle"
+    }
+  ],
   "web_accessible_resources": [
     {
       "resources": ["native/*", "config.example.yaml"],

@@ -1,0 +1,144 @@
+/* ============================================================
+   options.css — 设置页（浏览器设置页风格）
+   分节卡片 + 左标签右控件；输入框按内容宽度收紧；列表类字段单行网格。
+   ============================================================ */
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.page-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 4px 16px;
+}
+.page-head h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 400; color: var(--text); }
+
+/* ── 分节卡片 ─────────────────────────────────────────── */
+.card + .card { margin-top: 20px; }
+
+.card-title {
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 176px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+}
+.card-title + .row, .row:first-of-type { border-top: none; }
+.row > label { font-size: 13px; color: var(--text); }
+
+.row textarea { width: 100%; }
+
+/* 输入框按所需内容收紧 */
+.w-xs   { width: 64px; }
+.w-sm   { width: 88px; }
+.w-num  { width: 112px; }
+.w-md   { width: 200px; }
+.w-lg   { width: 100%; max-width: 340px; }
+.unit   { font-size: 12px; color: var(--text-muted); }
+
+.inline { display: flex; align-items: center; gap: 8px; }
+
+.note {
+  margin: 0;
+  padding: 2px 16px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.note.ok { color: var(--ok); }
+.note.warn { color: var(--warn); }
+
+.subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+.subhead .subnote { font-weight: 400; color: var(--text-faint); }
+
+.row-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+}
+.status { font-size: 12.5px; color: var(--ok); }
+.status.error { color: var(--danger); }
+
+/* ── 单行网格：持仓 / SSH 服务器 ──────────────────────── */
+.grid-scroll { overflow-x: auto; }
+
+.grid-head, .h-row, .s-row {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  min-width: 600px;
+}
+.grid-head { padding-top: 2px; padding-bottom: 4px; font-size: 11px; color: var(--text-faint); }
+.grid-head span { padding-left: 2px; }
+
+.h-row, .s-row { border-top: 1px solid var(--border); }
+.h-row input, .h-row select, .s-row input { width: 100%; padding: 5px 7px; font-size: 12px; }
+
+/* 持仓：代码 / 名称 / 类别 / 份额 / 成本 / 对账日 / ✕ */
+.grid-head.hold, .h-row { grid-template-columns: 90px minmax(96px, 1fr) 62px 80px 80px 130px 26px; }
+/* SSH：名称 / 主机 / 端口 / 用户 / 密码 / 密钥 / ✕ */
+.grid-head.ssh, .s-row { grid-template-columns: minmax(88px, 1fr) minmax(120px, 1.2fr) 58px minmax(88px, 1fr) minmax(88px, 1fr) minmax(100px, 1fr) 26px; }
+.grid-head.ssh, .s-row { min-width: 700px; }
+
+.h-row input[data-field="shares"], .h-row input[data-field="cost"], .s-row input[data-field="port"] {
+  font-family: var(--font-mono);
+}
+
+.del-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text-faint);
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.del-btn:hover { background: var(--danger-weak); color: var(--danger); }
+
+.add-row { padding: 10px 16px; }
+
+/* 紧跟小节标题的行不再重复画分隔线 */
+.subhead + .row, .subhead + .grid-scroll .grid-head { border-top: none; }
+/* 卡片里作为首个元素的按钮区不画顶线 */
+.card > .actions:first-child { border-top: none; }

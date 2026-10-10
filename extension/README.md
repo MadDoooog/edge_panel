@@ -1,52 +1,64 @@
-# extension — 浏览器侧边栏扩展
+# extension — 浏览器扩展（新标签页仪表盘 + 持仓浮层）
 
-把 edge-panel 的功能搬进浏览器**右侧侧边栏**（MV3，零构建，改 JS/CSS 直接生效）。单列布局，自上而下：**Cursor 用量 → 服务器（SSH 磁盘）→ Logshed → 阅读**；顶栏仅保留「阅读 / 设置」两个按钮。
+MV3 零构建扩展，改 JS/CSS/HTML 直接生效。两个显示位置：
+
+1. **新标签页**（`chrome_url_overrides.newtab` → `newtab.html`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 跳转**，可拖动、可折叠，位置记忆。
+2. **DeepSeek 会话页**（content script `deepseek-overlay.js`）：在设置为指定会话 id 的会话页显示**持仓浮层**。
+
+点工具栏图标 = 打开设置页（`options.html`）。**没有侧边栏**。
 
 ## 功能
 
-| 区块 | 实现方式 |
-|------|----------|
-| Cursor 用量 + 团队排名 | **直连 cursor.com**（host_permissions 免 CORS；Cookie/Origin/Referer 由 background 的 `declarativeNetRequest` 规则注入）；team_id / user_id 从 cookie 自动推导，通常只需在设置填 user_email |
-| 服务器磁盘 | **Native Messaging → Go 宿主**按需 SSH 采集 `type:ssh` 目标（df + du）；宿主**流式上报进度**，采集由 background 持有、侧边栏关闭后仍继续 |
-| Logshed | 单按钮红绿状态（点击重新探测），不展示历史 |
-| Release Matrix | Logshed 左侧链接（新标签页打开）；`version` 参数在设置页配置（`releaseMatrixVersion`，默认 `26q3`） |
-| 阅读（知乎） | 直连 zhihu API + 自动 cookie；归一化、去重缓存、收藏、评论全部在扩展内完成 |
+| 位置 | 内容 | 实现方式 |
+|------|------|----------|
+| 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com（host_permissions 免 CORS；Cookie/Origin/Referer 由 background 的 DNR 注入）；team_id / user_id 从 cookie 自动推导，通常只需填 user_email；10 分钟缓存 + 403 自愈重试 |
+| 新标签页卡片 | 服务器磁盘 | Native Messaging → Go 宿主按需 SSH 采集（df + du）；宿主流式上报进度，采集由 background 持有，关页面后继续；24h 内不重复查询 |
+| 新标签页卡片 | Release Matrix 跳转 | 纯链接卡片；`version` 在设置页配置（`releaseMatrixVersion`，默认 `26q3`） |
+| DeepSeek 会话页 | 持仓浮层 | **默认收成悬浮球** `[● 持仓 \| ⧉ \| ⌄]`：圆点=状态（绿在带内 / 橙出带 / 红行情失败）；**点「持仓」= 直接转附件**（成功留在球里，没进附件通道就自动展开卡片）；`⧉` 复制、`⌄` 展开明细；整块可拖动。卡片里：持仓明细、合计、四类占比、出带信号 + 三个动作（**复制** / **填入** / **转附件**）。份额/成本手工录入，现价经 background 从**腾讯+新浪双源**拉取互验（GBK 解码）；**配色跟随 DeepSeek 自己的浅色/深色** |
+| 设置页 | 配置 | Cursor 标识、Matrix version、持仓、SSH 服务器；下载配置模板 / 导入 |
 
 ## 安装
 
-1. 打包（生成含 Native 宿主的安装包）：`bash package.sh` → `dist/edge-panel-v<ver>.zip`；解压后在 `edge://extensions/` → 开发人员模式 →「加载解压缩的扩展」→ 选解压目录。（开发期可直接加载 `extension/` 目录，但 `native/` 下的宿主与安装脚本只在打包时生成。）
-2. 点工具栏图标**打开/关闭**右侧侧边栏（相当于新标签页仪表盘）；侧边栏**只**由图标点击控制，不做任何自动开/关。
-3. 首次使用点顶栏「⚙」，填写非 Cookie 的账号标识：
-   - **Cursor**：`team_id` / `user_id` / `user_email`（来自 cursor.com 账号设置）
-   - **SSH 服务器**：服务器面板的数据源（直接填写，或下载模板填写后导入）
-   - **Logshed URL**（默认已填）
-   - Cookie 无需填写——自动读取浏览器登录态（cursor.com 的 `WorkosCursorSessionToken`、zhihu.com 的 `z_c0`）
-4. 服务器面板需要 Native 宿主（一次性，Windows 侧）：面板提示「Native 宿主未安装」时点「下载并安装 Native 宿主」→ 3 个文件下到下载目录 `edge-panel-host/` → 双击 `install-edge-panel-host.bat` 完成注册，然后点 ↻ 重试。
+1. 打包：`bash package.sh` → `dist/edge-panel-v<ver>.zip`；解压后在 `edge://extensions/` → 开发人员模式 →「加载解压缩的扩展」→ 选解压目录。（开发期可直接加载 `extension/` 目录，但 `native/` 下的宿主与安装脚本只在打包时生成。）
+2. 按 **Ctrl+T**：新标签页即仪表盘。卡片标题栏**单击折叠/展开、拖动移动**，位置与折叠状态存 `chrome.storage.local`。
+3. 点工具栏图标（或新标签页右上角 ⚙）进设置页：
+   - **Cursor**：`team_id` / `user_id` / `user_email`
+   - **Release Matrix**：`version`
+   - **持仓**：DeepSeek 会话 id（可直接粘整条 URL）、持仓列表、应急金、可投资现金腿、目标占比与带宽、佣金
+   - **SSH 服务器**：服务器卡片的数据源（直接填写，或下载模板填写后导入）
+   - Cookie 无需填写——自动读取浏览器登录态（cursor.com 的 `WorkosCursorSessionToken`）
+4. 服务器卡片需要 Native 宿主（一次性，Windows 侧）：卡片提示「Native 宿主未安装」时点「下载并安装 Native 宿主」→ 3 个文件下到下载目录 `edge-panel-host/` → 双击 `install-edge-panel-host.bat` 完成注册，然后点 ↻ 重试。
 
 ## 文件结构
 
 ```
 extension/
-├── manifest.json      # MV3 清单：sidePanel/storage/cookies/downloads + host_permissions + WAR
-├── background.js      # 点击图标开关侧边栏 + declarativeNetRequest 动态规则 + SSH 采集（connectNative 流式进度）
-├── sidepanel.html     # 单列布局面板
-├── sidepanel.css      # 单列布局样式
-├── options.html/js    # 设置页（cursor、logshed、SSH 服务器；下载模板/导入）
+├── manifest.json      # MV3 清单：newtab 覆盖 + content_scripts + host_permissions + WAR
+├── background.js      # 图标点击开设置页 + DNR 头注入 + SSH 采集持有者 + 行情取价代理
+├── theme.css          # 设计令牌与基础控件（亮/暗跟随系统，贴近浏览器原生观感）
+├── newtab.html/css/js # 新标签页悬浮仪表盘（三张卡片：拖动/折叠/位置记忆；图表配色取自 CSS 变量）
+├── options.html/css   # 设置页（浏览器设置页风格：分节卡片 + 左标签右控件 + 单行字段网格）
+├── deepseek-overlay.js# content script：DeepSeek 会话页持仓浮层（只读、复制快照）
 ├── yaml.js            # 极简 YAML 子集解析器（「导入配置」用）
-├── config.example.yaml# 配置模板（「下载配置模板」）
+├── config.example.yaml# SSH 配置模板（「下载配置模板」）
 ├── chart.umd.min.js   # 本地 vendored Chart.js（避开扩展页 CSP）
-├── cookies.js         # chrome.cookies 读取辅助
-├── metrics.js         # 采集缓存/进度读写 + 宿主安装引导（采集由 background 发起，流式进度）
-├── logshed.js         # 探测 + 6h 历史（chrome.storage.local）
-├── cursor.js          # 直连 cursor.com（用法/排名）
-├── feeds.js           # 知乎抓取/归一化/收藏/评论
-└── script.js          # UI 编排
+├── cookies.js         # chrome.cookies 读取辅助（cursor.com）
+├── metrics.js         # 采集缓存/进度读写 + 宿主安装引导 + 错误识别（采集由 background 发起）
+└── cursor.js          # 直连 cursor.com（用法/排名）
 ```
 
 ## 说明 / 限制
 
-- 需 **Chrome / Edge 116+**（Side Panel API）。侧边栏**只**在手动点击工具栏图标时打开/关闭（`setPanelBehavior({ openPanelOnActionClick: true })`，图标即开关：关闭时点击打开，打开时再点关闭）；不做任何自动开/关，切标签、切窗口、失焦都不会影响面板。
-- **服务器磁盘**由扩展后台（service worker）经 `connectNative` 发起采集，宿主**流式上报进度**（逐服务器 + 每 10s 心跳保活），因此**侧边栏关闭后采集仍继续**；进度持久化在 `chrome.storage.local`（`metricsProgress`），重新打开面板先显示「正在采集到 xx」，完成后显示「更新于 xx」。缓存 **24h 内不重复查询**（点刷新按钮强制重新采集）；不做 7×24 后台探测。Logshed 在面板可见期间每 60s 探测一次。
-- 扩展页 `fetch` **无法设置 Cookie / Origin / Referer 等 forbidden headers**，因此由 [background.js](background.js) 的 `declarativeNetRequest` 动态规则在请求发出前注入（cookie 每次面板打开时从 `chrome.cookies` 刷新），fetch 统一用 `credentials:"omit"` 避免重复。若 Cursor / 知乎仍 403，通常是浏览器里未登录对应站点（登录态 cookie 缺失）。
-- 服务器采集由 **background（service worker）** 经 `chrome.runtime.connectNative` 拉起 Go 宿主；宿主在采集期间流式上报 `{"type":"progress",...}` 消息（逐服务器 + 每 10s 心跳），扩展将进度写入 `chrome.storage.local` 并广播到面板——面板关闭不中断采集，重开时先展示持久化的进度。
-- SSH 配置保存在设置页（`chrome.storage.sync`），采集时经 native 消息**内联**传给宿主（`{"type":"collect","config":{...}}`），不再读取磁盘 `config.yaml`。宿主未注册时面板会引导从插件自身下载安装脚本，双击一次完成注册——MV3 无法静默写注册表，这是插件内唯一的安装通路。
+- 需 **Chrome / Edge 101+**（MV3 + `adoptedStyleSheets`）。**侧边栏已移除**，不需要 Side Panel API。
+- **外观跟随浏览器主题**：`theme.css` 用 `prefers-color-scheme` 提供亮/暗两套令牌（取色贴近浏览器原生界面），新标签页与设置页共用；Cursor 图表配色由 `newtab.js` 从这些 CSS 变量读出，系统主题切换时自动重绘。
+- **设置页只有一个「保存」按钮**：一次写入 `storage.sync`（Cursor / Matrix / SSH）与 `storage.local`（持仓）。保存后会回读存储渲染摘要 —— 页面显示的永远是「实际存进去的」，而不是「表单里填的」。
+- **扩展无法向 `about:blank` 注入脚本**，所以「空白页上悬浮卡片」只能靠**接管新标签页**实现；想用回默认新标签页就在 `edge://extensions` 停用本扩展。
+- **服务器磁盘**由 background（service worker）经 `connectNative` 发起采集，宿主流式上报进度（逐服务器 + 每 10s 心跳保活），因此**新标签页关掉后采集仍继续**；进度持久化在 `chrome.storage.local`（`metricsProgress`），重新打开先显示「正在采集到 xx」，完成后「更新于 xx」。缓存 **24h 内不重复查询**（点 ↻ 强制重新采集）；不做 7×24 后台探测。
+- 扩展页 `fetch` **无法设置 Cookie / Origin / Referer 等 forbidden headers**，由 [background.js](background.js) 的 `declarativeNetRequest` 动态规则在请求发出前注入（cursor cookie 每次打开新标签页时从 `chrome.cookies` 刷新），fetch 统一用 `credentials:"omit"`。若 Cursor 仍 403，通常是浏览器里未登录 cursor.com。
+- **行情（持仓浮层）**：`deepseek-overlay.js` 是本项目唯一的 content script（`matches: https://chat.deepseek.com/*`）：
+  - **挂载判定只看 URL**（`/a/:agentId/s/:sessionId` 里的 sessionId 与设置比对），不依赖任何页面 DOM 选择器；不在指定会话页时不挂载。
+  - **取价必须经 background 代理**（`{type:"finance-quotes"}`）：content script 的 fetch 受**页面源** CORS 约束，扩展 `host_permissions` 对它不生效，行情接口也不返回 CORS 头。新浪行情缺 Referer 会 403，由 DNR **规则 4** 注入；腾讯行情是 **GBK**，需 `TextDecoder("gbk")`。
+  - 浮层用 **Shadow DOM + `adoptedStyleSheets`**，隔离页面样式并绕开页面 CSP 对内联 `<style>` 的限制。
+  - **只读**：不读对话内容、不碰输入框、不自动发送；只有「📋 复制快照」。
+  - 会话页上若没匹配到（未配置 / URL 不一致），显示一枚小角标说明原因，避免「什么都不显示」的静默状态。
+- SSH 配置与 Cursor / Matrix 配置存 `chrome.storage.sync`；**持仓配置与卡片位置存 `chrome.storage.local`**（含金额，不上云）。

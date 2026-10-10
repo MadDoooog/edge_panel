@@ -1,6 +1,5 @@
 /* ============================================================
-   cursor.js — Cursor 用量/排名直连（替代后端代理）
-   - host_permissions 使扩展页免 CORS
+   cursor.js — Cursor 用量/排名直连（替代后端代理）   - host_permissions 使扩展页免 CORS
    - Cookie / Origin / Referer 由 background 的 DNR 动态规则注入
      （见 background.js updateAuthRules），因此这里用
      credentials:"omit"，只设 Accept / Content-Type。
@@ -131,7 +130,7 @@ async function fetchCursorLeaderboardApi() {
   return { rank_7d: rank7d, rank_30d: rank30d };
 }
 
-/** 用量事件原始响应（结构与后端代理返回一致，供 script.js 聚合）。 */
+/** 用量事件原始响应（结构与后端代理返回一致，由 newtab.js 聚合）。 */
 async function fetchCursorUsageApi() {
   const settings = await getCursorSettings();
   if (!settings.cursorTeamId) throw new Error("未检测到 Cursor team_id — 请先在浏览器登录 cursor.com，或到扩展设置填写");

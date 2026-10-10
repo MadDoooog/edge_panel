@@ -5,7 +5,7 @@
 
 /**
  * 读取指定域名的全部 Cookie 并拼成 `Cookie` 请求头。
- * @param {string} domainUrl 例如 "https://cursor.com" / "https://www.zhihu.com"
+ * @param {string} domainUrl 例如 "https://cursor.com"
  */
 async function getCookieHeader(domainUrl) {
   try {
