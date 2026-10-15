@@ -1,15 +1,17 @@
 {
   "manifest_version": 3,
   "name": "edge-panel",
-  "version": "0.6.0",
-  "description": "新标签页悬浮仪表盘 — Cursor 费用 / 服务器磁盘 / Matrix 跳转；DeepSeek 会话页持仓浮层",
+  "version": "0.7.2",
+  "description": "新标签页悬浮仪表盘 — Cursor 费用 / 服务器磁盘 / Matrix 跳转；DeepSeek 会话页持仓浮层；安居客地图找房户型浮层",
   "minimum_chrome_version": "101",
-  "permissions": ["storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads", "clipboardWrite"],
+  "permissions": ["storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads", "clipboardWrite", "webRequest"],
   "host_permissions": [
     "*://cursor.com/*",
     "*://*.cursor.com/*",
     "*://qt.gtimg.cn/*",
-    "*://hq.sinajs.cn/*"
+    "*://hq.sinajs.cn/*",
+    "*://api.fang.anjuke.com/*",
+    "*://*.fang.anjuke.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -25,6 +27,11 @@
     {
       "matches": ["https://chat.deepseek.com/*"],
       "js": ["deepseek-overlay.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.fang.anjuke.com/map/*"],
+      "js": ["anjuke-overlay.js"],
       "run_at": "document_idle"
     }
   ],

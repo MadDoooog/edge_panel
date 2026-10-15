@@ -8,6 +8,7 @@
 
 - **新标签页**（`chrome_url_overrides.newtab`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 跳转**，可拖动、可折叠、位置记忆
 - **DeepSeek 会话页**（content script）：**持仓浮层** —— 默认是「持仓」悬浮球，点开是卡片；份额/成本手工录入，现价经 background 从腾讯+新浪双源拉取互验，市值/浮盈/四类占比本地算，「复制快照」或「填入输入框」
+- **安居客地图找房页**（content script）：**户型浮层** —— 地图气泡下挂「**详情**」按钮；点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价** 三列），标签文字随即就地刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 这样的缩略摘要（`|` 分隔，最多 `BADGE_MAX_ITEMS` 条，超出 `…+N`，完整列表在 `title` 与面板里）
 - **点工具栏图标 = 打开设置页**；**没有侧边栏**（Side Panel API 与相关权限已移除）
 - 扩展**直连源站**（Cursor / 行情，免 CORS）；登录态自动读取浏览器 cookie
 - 服务器磁盘（SSH）走 **Native Messaging → Go 宿主**（`native_host/`）按需采集
@@ -27,6 +28,7 @@ edge-panel/
 │   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（三张卡片：拖动/折叠/位置持久化）
 │   ├── options.html/css    # 设置页（分节卡片 + 左标签右控件 + 单行字段网格）
 │   ├── deepseek-overlay.js # content script：DeepSeek 会话页持仓浮层（悬浮球 + 卡片；复制/填入输入框）
+│   ├── anjuke-overlay.js   # content script：安居客地图找房气泡户型浮层（标签 + 面板 + 调接口补齐）
 │   ├── yaml.js             # 极简 YAML 子集解析器（「导入配置」用）
 │   ├── config.example.yaml # SSH 配置模板（设置页「下载配置模板」）
 │   ├── chart.umd.min.js    # 本地 vendored Chart.js（避开扩展页 CSP）
@@ -45,7 +47,9 @@ edge-panel/
 ```bash
 # 加载/重载扩展：edge://extensions → 开发人员模式 → 加载解压缩的扩展 → 选 extension/
 #   （改 JS/CSS 后点「重新加载」，再刷新新标签页即可生效；零构建）
-# 打包可安装扩展包（交叉编译 Windows Native 宿主 + 扩展 → dist/edge-panel-v<ver>.zip）：
+# 打包（交叉编译 Windows Native 宿主 + 扩展）：
+#   dist/edge-panel-v<ver>.zip       首次安装（外层带一层同名目录）
+#   dist/edge-panel-v<ver>-flat.zip  原地覆盖升级（无外层目录，解压进当前已加载目录）
 bash package.sh
 # 改 native_host/ 或要生成新安装包时重跑 bash package.sh。
 ```
@@ -54,6 +58,12 @@ bash package.sh
 
 - **扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers** —— 由 [background.js](extension/background.js) 的 `declarativeNetRequest` 动态规则在请求前注入（cursor cookie 每次打开新标签页时经 `refresh-auth` 刷新），所有直连 fetch 用 `credentials:"omit"` 避免 cookie 重复。新增直连源站时同步更新 DNR 规则。现有规则 id：**1** cursor 排名、**2** cursor 用量、**4** 新浪行情 Referer；**3 = 已删除的知乎规则**，仅在 `removeRuleIds` 里保留以清理旧安装残留。
 - **content script 的 `fetch` 受页面源 CORS 约束**，扩展 `host_permissions` 对它**不生效**，行情接口也不返回 CORS 头 —— 因此 `deepseek-overlay.js` 的取价必须走 background 代理（`{type:"finance-quotes"}`），不能在浮层里直接 fetch。腾讯行情是 **GBK**，必须 `TextDecoder("gbk")`；新浪行情缺 Referer 会 403（实测），靠 DNR 规则 4。
+- **安居客浮层的取数参数靠 `webRequest` 观察，不靠注入页面世界**（改 `anjuke-overlay.js` / `background.js` 前必读）：地图页自己用 jQuery JSONP 调 `api.fang.anjuke.com/web/loupan/mapNewlist/`，该接口**不返回任何 `Access-Control-*` 头**，所以 content script 不能自己 fetch；background 用 `chrome.webRequest.onBeforeRequest`（**MV3 只能观察、不能拦截**）抄下那条请求 URL 里的 `bbox/zoom/筛选`，再用同参数取纯 JSON（去掉 `callback` 就是纯 JSON，`page_size` 服务端硬上限 100）推回浮层。这样零页面上下文代码、不依赖页面用的 jQuery 内部实现，也不用把 `minimum_chrome_version` 抬到 `world:"MAIN"` 要求的 111 —— **manifest 的 `webRequest` 权限和 `*://api.fang.anjuke.com/*` host 权限不能删**。接口实测**不需要 cookie / Referer**，故不新增 DNR 规则。
+- **安居客气泡的 DOM 特性**：气泡是 `div.mark.mark-point`（纯 DOM，无 canvas/iframe），坐标是内联 `left/top`；**地图平移会回收复用这些节点**（只改 `style` 与文本，不增不删）→ `MutationObserver` 必须同时监听 `attributes`（`attributeFilter:["style","class"]`）+ `characterData`，且重扫必须幂等（`markText()` 文本比对 + `rAF` 节流）。**读气泡文本必须用 `markText()` 排除自己注入的标签/面板**，否则标签文字会被读回来污染名称解析（实测会退化成前缀匹配）。价格单位是 **`m²`(U+00B2)**，不是 `㎡`(U+33A1)。楼盘名与价格**连写无分隔符**（`浐灞1016000元/m²`）→ 名称匹配三级：剥价格精确 / 原文精确 / 索引最长前缀。DOM 上拿不到 `loupan_id`，只能靠名字匹配。
+- **安居客全量户型走专用接口，不要解析详情页 HTML**：`GET {origin}/aifang/web/ajax/LoudongHuxing/?loupan_id=<id>` —— 与地图页**同源**（content script 直接 fetch 即可，cookie 自动带），需要 `x-requested-with: XMLHttpRequest`（该头**不是** forbidden header，content script 和 background 都能设）。地图接口自带的 `house_types` **服务端写死最多 3 条**（加 `loupan_id` 过滤无效，实测），要全部户型就调这个接口。
+  - 该接口**响应结构未公开**，所以 `parseHouseTypes()` 写成**不依赖字段名**：递归遍历 JSON（深度 ≤8），凡是「自己身上带着房型串（`3室2厅2卫` / `5居室`）」的对象就当一条户型记录，再从候选键名里取面积/总价/朝向。候选键：面积 `area|build_area|jianzhu_area|area_size|mianji|size|…`、总价 `total_price|zongjia|total_amount|…`、均价 `price|avg_price|…`、朝向 `orient|chaoxiang|…`。字段名对不上时会把**原始响应打 1500 字到 console**，照着写死映射即可（`window.__edgePanelAnjuke.parseApi(json)` 可离线验解析）。
+  - 两个已踩过的坑：① **拼接式字符串**（`3室2厅2卫/105㎡`）只在**自带面积**时才认，否则会和对象分支抓到的同一条重复一遍（空面积那次）；② `price` 一般是**均价**（元/m²），但有的响应里放的是**总价** —— 按量级判（均价现实中到不了 30 万/㎡，`≥ 300000` 就当总价），否则留给 `面积×均价` 推导并在显示时带 `~`。
+  - 兜底顺序：**户型接口 → 详情页 HTML 文本特征聚类 → 同源 iframe 渲染读 DOM**。详情页与地图页同源、前端渲染读不到时用同源 iframe（该站 CSP `frame-ancestors` 允许 `*.anjuke.com`）；HTML 提取**不依赖 class 名**，按「房型 + 面积 + 总价」文本特征聚类。`rec.via` 会标出这次数据是 `api` / `html` / `iframe` 哪条路来的。
 - **「空白页悬浮卡片」只能靠接管新标签页实现** —— 扩展无法向 `about:blank` 注入脚本，`chrome_url_overrides.newtab` 是唯一稳妥做法。改 `newtab.*` 就是改整个仪表盘。
 - **扩展目录路径不能变**：Edge/Chrome 给解压缩扩展分配的 ID 由**目录绝对路径**算出（manifest 无 `key`）。换路径 = 新 ID = `storage.sync` 配置清空 + Native 宿主 `allowed_origins` 失配（服务器卡片报 host not found，需重跑 `install-edge-panel-host.bat`）。**原地覆盖升级**是正确姿势。
 - **content script 边界**（`deepseek-overlay.js`）：**不读对话内容、不自动发送**；挂载判定**只看 URL**（`/a/:agentId/s/:sessionId`），不依赖页面 DOM 选择器；样式用 Shadow DOM + `adoptedStyleSheets` 隔离，配色跟随 **DeepSeek 自己的浅色/深色**（采样页面实际背景色，2s 轮询，非浏览器主题）。写页面的动作只有用户点击才发生：**填入**（合成一次 `paste` 事件让 DeepSeek 自己决定"文本 / 转 .txt 附件"；它不接管时用 `execCommand("insertText")` 或原生 setter + `input` 事件追加文本）与**转附件**（`file input` 注入 `File` + 派发 `change`）。**两条路都失败就退回剪贴板，绝不静默**。默认形态是「持仓」悬浮球，点开才是卡片。
@@ -72,6 +82,7 @@ bash package.sh
   - 附件文件名由**快照首行**派生（DeepSeek 会删掉 `\ / : * ? " < > |`，所以首行只放日期不放 `16:15` 这样的时间）。`derivedFileName()` 复刻了这条规则。
   - 三条通道都用 `attachmentVisible()`（轮询页面里是否出现文件名）与输入框回读来**确认结果**，失败一律退回剪贴板，绝不静默。
   - `window.__edgePanelFinance` 是隔离世界里的调试钩子（页面脚本不可见）：`setTestState(cfg, quotes)` + `buildSnapshot()` 验算术、`deliverToComposer()`/`derivedFileName()` 验投递通道、`matchSession(pathname)` 验挂载判定、`detectPageTheme()` 验主题采样
+- `extension/anjuke-overlay.js` — content script：安居客「地图找房」气泡户型浮层。气泡（`div.mark.mark-point`）下方挂小标签 `2/2/1-95平-92万`（房型/面积/参考总价，取接口自带的 `house_types`）；标签**默认只显示「详情」**（不再回显地图接口那 3 条）；点开 Shadow DOM 面板会**自动**调 `LoudongHuxing` 取全部户型，表格只列 **户型/面积/总价**，加载成功后标签就地刷新成 `|` 分隔的缩略摘要（详情未到/失败时保持「详情」；失败给「重试」按钮，`rec.via` 标明来源是 `api` / `html` / `iframe`）。取数参数由 background 的 `webRequest` 观察页面自己的 `mapNewlist` 请求得到，数据由 background 取纯 JSON 推回（`{type:"ajk-rows"}`）；详情页 HTML 由浮层同源 fetch，失败再走 background 代理（`{type:"ajk-fetch-text"}`）。日志前缀 `[ajk-overlay]` / `[ajk-bg]`，调试钩子 `window.__edgePanelAnjuke`（`dump()` 看逐气泡名称匹配率、`detail(id)` 手动抓某个楼盘）。
 - `extension/background.js` — 图标点击开设置页 + DNR 头注入 + **SSH 采集持有者**（connectNative 流式接收宿主进度 → 持久化 `metricsProgress` 并广播）+ **行情取价代理**（腾讯+新浪双源互验、GBK 解码、按开市/休市分档缓存）
 - `extension/metrics.js` — 页面侧辅助：采集缓存/进度读写（`metrics` / `metricsProgress`）、宿主安装引导、错误识别；不直接 connectNative
 - `extension/cookies.js` — `chrome.cookies` 读取辅助（cursor.com 的 `WorkosCursorSessionToken`）
@@ -81,7 +92,9 @@ bash package.sh
 
 ## 打包与 Native 宿主安装
 
-- `bash package.sh`：交叉编译 Go 宿主为 Windows .exe，连同扩展文件、安装脚本、`config.example.yaml` 一起打包为 `dist/edge-panel-v<ver>.zip`（见[目录结构](#目录结构)）。
+- `bash package.sh`：交叉编译 Go 宿主为 Windows .exe，连同扩展文件、安装脚本、`config.example.yaml` 一起打包，**出两个 zip**（见[目录结构](#目录结构)）：
+  - `dist/edge-panel-v<ver>.zip` —— 外层带一层 `edge-panel-v<ver>/`，首次安装用。
+  - `dist/edge-panel-v<ver>-flat.zip` —— 顶层直接是扩展文件（无外层目录），**原地覆盖升级**用。扩展 ID 由目录绝对路径算出，所以升级必须覆盖【当前已加载的那个目录】；用带外层目录的包解压会多出一层新目录 = 新 ID = `storage.sync` 配置清空 + Native 宿主 `allowed_origins` 失配。**注意 Windows 资源管理器的「全部解压」会自动建一层与 zip 同名的文件夹**，升级时应打开 zip 全选复制粘贴进目标目录，或用 7-Zip「解压到当前文件夹」。
 - 安装扩展：解压 zip → `edge://extensions` → 开启「开发人员模式」→「加载解压缩的扩展」→ 选解压目录；按 Ctrl+T 看新标签页仪表盘。
 - 安装宿主：卡片提示「Native 宿主未安装」时点「下载并安装 Native 宿主」→ 3 个文件下到下载目录 `edge-panel-host/` → 双击 `install-edge-panel-host.bat`（PowerShell 复制 exe 到 `%LOCALAPPDATA%\edge-panel-host`、写 host manifest、`reg.exe` 注册 Edge）→ 点 ↻ 重试。
 - **扩展页无法静默注册宿主**（MV3 不能写注册表 / 任意外部路径），「下载 + 双击」是插件内唯一的安装通路。安装脚本是静态模板，位于 `native_host/`，打包时复制进 `native/`。
@@ -130,6 +143,9 @@ SSH 配置在设置页（options.html）「SSH 服务器」区块编辑，保存
 | Cursor 卡片 403 | 浏览器里未登录 cursor.com，或 cookie 过期 |
 | 服务器采集失败 | 检查设置页 SSH 配置（凭据 / 网络） |
 | DeepSeek 会话页看不到浮层 | ①设置里没填该会话 id（可直接粘整条 URL）②扩展未重载 ③该页是首页/分享页而非会话页。会话页上会出现说明原因的小角标 |
+| 安居客气泡没出现标签 | ①扩展没重载（改了 manifest，必须重新加载）②日志里没有 `[ajk-bg] 观察到 mapNewlist 请求` → `webRequest` 权限或 host 权限没生效 ③气泡文本与接口名字对不上，用 `__edgePanelAnjuke.dump()` 看 `hit` |
+| 安居客面板「没取到全部户型」 | 日志里 `[ajk-overlay] 户型接口解析：N 条` 会带 `{objects, objHits, strHits}`；若为 0，紧随其后会打印 `↓ 户型接口原始响应（前 1500 字）`，把那段发出来即可写死字段映射。三条兜底路都失败时还会打印 `↓ 详情页 HTML 片段` |
+| 安居客标签显示「详情?」 | 该气泡的名字在接口返回里没有（被缩写/改写过）；`dump()` 里看 `raw -> name` 就知道差在哪。正常态的标签是「详情」（还没点过）或 `|` 分隔的缩略摘要（点过且取到了） |
 | 浮层「行情失败」 | 行情源不可达/被限流；点 ↻ 重试。腾讯、新浪均实测可用，东财接口本机不通 |
 | 浮层某行「价缺」 | 该代码未返回行情（停牌/代码写错）；该行按成本计入并在快照里标注 |
 | 点「填入」变成输入框里的长文本，而不是 .txt 附件 | 快照没超过 DeepSeek 的 `pasteTextToFileLimit`（运行时配置，无法静态读取）。想要附件就点「转附件」 |
@@ -145,3 +161,5 @@ SSH 配置在设置页（options.html）「SSH 服务器」区块编辑，保存
   - 持仓浮层算术：`window.__edgePanelFinance.setTestState(cfg, quotes)` + `buildSnapshot()`；挂载判定用 `matchSession(pathname)`。
   - 行情解析/合并：`background.js` 的 `parseTencentQuotes` / `parseSinaQuotes` / `fetchFinanceQuotes` 是顶层函数，可用 node 的 `vm` + stub `chrome`，并把本地抓好的 **GBK 原始字节**喂给 `fetch` 桩（无需联网）。
   - 结构自检：核对 manifest/HTML 引用的文件都存在、JS 里 `getElementById` 的 id 在配对 HTML 里存在。
+  - 安居客户型提取器：`anjuke-overlay.js` 的 `extractFromDoc(doc, rec)` 是顶层函数、只依赖 `DOMParser`，可用 headless Chromium（`--dump-dom`）把「合成详情页 HTML」喂进去跑回归 —— 已验证卡片式 / 表格式 / 居室式 / 两类噪音句（只有房型没面积总价）。整套浮层也能离线冒烟：造假 `.mapmain` + 几个 `div.mark`，stub `chrome.runtime.sendMessage/onMessage` 与 `fetch`，加载 `anjuke-overlay.js` 后断言标签文本、面板展开、详情页补齐行数、以及**节点被回收复用后标签是否跟着更新**。
+

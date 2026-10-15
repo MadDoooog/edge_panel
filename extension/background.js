@@ -382,6 +382,156 @@ async function fetchFinanceQuotes(codes, force) {
   return { ok: true, at, quotes, errors };
 }
 
+/* ============================================================
+   安居客地图找房：观察页面自己发的 mapNewlist 请求 → 取数 → 推给浮层
+   ------------------------------------------------------------
+   为什么不直接在 content script 里 fetch：
+     api.fang.anjuke.com 不返回任何 Access-Control-* 头，而 content script
+     的 fetch 受「页面源」CORS 约束（扩展 host_permissions 对它不生效），
+     所以取数必须由 background 代做。
+   为什么用 webRequest 而不是往页面世界注入 hook：
+     MV3 的 webRequest 只能观察、不能拦截 —— 而我们要的恰好只是那条请求的
+     URL（带 bbox/zoom/筛选条件）。这样零页面上下文代码、不依赖页面用的
+     jQuery 内部实现，也不用把 minimum_chrome_version 抬到 world:"MAIN"
+     所要求的 111。
+   接口无需 cookie / Referer（实测）；把 callback 参数去掉即返回纯 JSON；
+   page_size 服务端硬上限 100。
+   ============================================================ */
+const AJK_MAPLIST_URL = "https://api.fang.anjuke.com/web/loupan/mapNewlist/";
+const AJK_MAPLIST_FILTER = "*://api.fang.anjuke.com/web/loupan/mapNewlist/*";
+const AJK_SESSION_KEY = "anjukeMapCache"; // 只留最近一个 tab，SW 被回收后仍能应答
+const AJK_DEBOUNCE_MS = 400; // 拖动地图会连发，必须合并
+const AJK_PASS = [
+  "city_id", "zoom", "swlng", "swlat", "nelng", "nelat", "order", "order_type",
+  "region_id", "sub_region_id", "house_type", "property_type", "price_id",
+  "bunget_id", "status_sale", "price_title", "keywords",
+];
+
+const ajkByTab = new Map(); // tabId -> { key, params, rows, at }
+const ajkTimers = new Map(); // tabId -> timeoutId
+
+function ajkLog(...a) {
+  console.log("[ajk-bg]", ...a);
+}
+function ajkWarn(...a) {
+  console.warn("[ajk-bg]", ...a);
+}
+
+/** 从页面自己的请求 URL 里抄出取数参数（缺 bbox 的请求直接忽略）。 */
+function ajkPickParams(url) {
+  let q;
+  try {
+    q = new URL(url).searchParams;
+  } catch (_) {
+    return null;
+  }
+  if (!q.get("swlng")) return null;
+  const p = {};
+  for (const k of AJK_PASS) {
+    const v = q.get(k);
+    if (v != null) p[k] = v;
+  }
+  p.page = "1";
+  p.page_size = "100";
+  return p;
+}
+
+function ajkBboxKey(p) {
+  return [
+    p.swlng, p.swlat, p.nelng, p.nelat, p.zoom, p.city_id, p.region_id,
+    p.house_type, p.property_type, p.price_id, p.bunget_id, p.status_sale,
+  ].join("|");
+}
+
+async function ajkFetchRows(params) {
+  const url = AJK_MAPLIST_URL + "?" + new URLSearchParams(params).toString();
+  const resp = await fetch(url, { credentials: "omit", cache: "no-store" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const text = await resp.text();
+  const j = JSON.parse(text); // 不带 callback → 纯 JSON
+  return (j && j.result && j.result.rows) || [];
+}
+
+async function ajkPersist() {
+  try {
+    if (!chrome.storage.session) return;
+    const last = [...ajkByTab.entries()].pop();
+    if (!last) return;
+    await chrome.storage.session.set({ [AJK_SESSION_KEY]: Object.assign({ tabId: last[0] }, last[1]) });
+  } catch (_) {}
+}
+
+async function ajkReadPersisted(tabId) {
+  try {
+    if (!chrome.storage.session || tabId == null) return null;
+    const obj = await chrome.storage.session.get(AJK_SESSION_KEY);
+    const v = obj[AJK_SESSION_KEY];
+    if (v && v.tabId === tabId) return v;
+  } catch (_) {}
+  return null;
+}
+
+async function ajkRun(tabId, params) {
+  const key = ajkBboxKey(params);
+  const prev = ajkByTab.get(tabId);
+  if (prev && prev.key === key) {
+    ajkLog("bbox 未变，跳过取数");
+    return;
+  }
+  const t0 = Date.now();
+  try {
+    const rows = await ajkFetchRows(params);
+    const rec = { key, params, rows, at: Date.now() };
+    ajkByTab.set(tabId, rec);
+    ajkPersist();
+    ajkLog(
+      `取数完成：${rows.length} 行 / ${Date.now() - t0}ms`,
+      `zoom=${params.zoom}`,
+      `bbox=${params.swlng},${params.swlat} → ${params.nelng},${params.nelat}`
+    );
+    // 页面上没有接收端时（浮层未注入）静默失败
+    chrome.tabs.sendMessage(tabId, { type: "ajk-rows", rows, params }).catch(() => {});
+  } catch (e) {
+    ajkWarn("取数失败：", (e && e.message) || e);
+  }
+}
+
+if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
+  chrome.webRequest.onBeforeRequest.addListener(
+    (d) => {
+      if (d.tabId == null || d.tabId < 0) return;
+      const params = ajkPickParams(d.url);
+      if (!params) return;
+      ajkLog(
+        "观察到 mapNewlist 请求",
+        `tab=${d.tabId}`,
+        `type=${d.type}`,
+        `zoom=${params.zoom}`,
+        `bbox=${params.swlng},${params.swlat} → ${params.nelng},${params.nelat}`
+      );
+      clearTimeout(ajkTimers.get(d.tabId));
+      ajkTimers.set(
+        d.tabId,
+        setTimeout(() => {
+          ajkTimers.delete(d.tabId);
+          ajkRun(d.tabId, params);
+        }, AJK_DEBOUNCE_MS)
+      );
+    },
+    { urls: [AJK_MAPLIST_FILTER] },
+    []
+  );
+  ajkLog("webRequest 观察器已挂载");
+} else {
+  ajkWarn("chrome.webRequest 不可用 —— 检查 manifest.json 是否声明了 webRequest 权限");
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  ajkByTab.delete(tabId);
+  clearTimeout(ajkTimers.get(tabId));
+  ajkTimers.delete(tabId);
+});
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "refresh-auth") {
     updateAuthRules().then(() => sendResponse({ ok: true })).catch((e) => sendResponse({ ok: false, error: String(e) }));
@@ -401,5 +551,68 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.runtime.openOptionsPage();
     sendResponse({ ok: true });
     return false;
+  }
+});
+
+/* 安居客浮层的两个消息（单独一个监听器，不动上面的既有分支）。
+   注意 chrome.runtime.onMessage 允许多个监听器并存：
+   上面那个对自己不认识的 type 会返回 undefined（不是 true），不占用响应通道。 */
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg) return;
+
+  // 浮层初始化时问一句「后台有没有已缓存的参数/数据」
+  if (msg.type === "ajk-rows") {
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    const rec = tabId != null ? ajkByTab.get(tabId) : null;
+    if (rec) {
+      sendResponse({ ok: true, rows: rec.rows, params: rec.params, at: rec.at });
+      return false;
+    }
+    ajkReadPersisted(tabId).then((v) => {
+      if (v) {
+        ajkByTab.set(tabId, v);
+        ajkLog(`从 storage.session 恢复缓存：${(v.rows || []).length} 行`);
+        sendResponse({ ok: true, rows: v.rows, params: v.params, at: v.at, restored: true });
+      } else {
+        sendResponse({ ok: true, rows: [], params: null });
+      }
+    });
+    return true; // 异步响应
+  }
+
+  // 户型接口代理（浮层同源 fetch 失败时的兜底）。
+  // 该接口要 x-requested-with: XMLHttpRequest —— 它不是 forbidden header，
+  // content script 和 background 都能设；这里把浮层传来的 headers 原样带上。
+  if (msg.type === "ajk-fetch-json") {
+    (async () => {
+      try {
+        const resp = await fetch(msg.url, {
+          credentials: "include",
+          cache: "no-store",
+          headers: msg.headers || {},
+        });
+        const text = await resp.text();
+        sendResponse({ ok: resp.ok, status: resp.status, text });
+      } catch (e) {
+        sendResponse({ ok: false, error: String((e && e.message) || e) });
+      }
+    })();
+    return true; // 异步响应
+  }
+
+  // 详情页 HTML 代理（浮层同源 fetch 失败时的兜底）。
+  // 这里用 credentials:"include"：安居客的反爬可能看会话 cookie，
+  // 且本扩展没有为这个域名注入任何 DNR 规则，不存在 cookie 重复问题。
+  if (msg.type === "ajk-fetch-text") {
+    (async () => {
+      try {
+        const resp = await fetch(msg.url, { credentials: "include", cache: "no-store" });
+        const text = await resp.text();
+        sendResponse({ ok: resp.ok, status: resp.status, text });
+      } catch (e) {
+        sendResponse({ ok: false, error: String((e && e.message) || e) });
+      }
+    })();
+    return true; // 异步响应
   }
 });

@@ -20,6 +20,7 @@ Edge / Chrome **浏览器扩展**（MV3，零构建）：把个人仪表盘做�
 | 新标签页卡片 | 服务器磁盘 | Native Messaging → Go 宿主 SSH 采集（df + du）；宿主流式上报进度、采集由后台持有；24h 内不重复查询 |
 | 新标签页卡片 | Release Matrix 跳转 | 链接卡片，`version` 参数在设置页配置（默认 `26q3`） |
 | DeepSeek 会话页 | 持仓浮层 | 仅在设置为指定会话 id 的会话页显示；行情经后台代理（腾讯+新浪双源互验）、算术与快照文本在本地 |
+| 安居客地图找房页 | 户型浮层 | 地图气泡下方挂「**详情**」按钮，点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价**），按钮文字随即刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要；取数参数由 background 用 `webRequest` **观察页面自己调的** `mapNewlist` 请求取得，再由 background 代取纯 JSON 推回浮层 |
 | 设置页 | 配置 | 点工具栏图标打开；Cursor 标识、Matrix version、持仓、SSH 服务器 |
 
 ## 安装
@@ -30,11 +31,14 @@ Edge / Chrome **浏览器扩展**（MV3，零构建）：把个人仪表盘做�
 bash package.sh
 ```
 
-产出 `dist/edge-panel-v0.6.0.zip`（内含扩展全部文件、编译好的 Windows Native 宿主与安装脚本）。
+产出两个包（都内含扩展全部文件、编译好的 Windows Native 宿主与安装脚本）：
+
+- `dist/edge-panel-v0.7.0.zip` —— 外层带一层 `edge-panel-v0.7.0/`，**首次安装**用
+- `dist/edge-panel-v0.7.0-flat.zip` —— 顶层直接是扩展文件，**原地覆盖升级**用：解压进你当前已加载的那个目录并覆盖，路径不变 → 扩展 ID 不变 → `storage.sync` 配置与 Native 宿主注册都保住
 
 ### 2. 加载扩展
 
-1. 解压：`unzip dist/edge-panel-v0.6.0.zip -d dist/`
+1. 解压：`unzip dist/edge-panel-v0.7.0.zip -d dist/`
 2. 打开 `edge://extensions/`（或 `chrome://extensions/`）→ 开启「开发人员模式」
 3. 「加载解压缩的扩展」→ 选解压出的目录
 4. 按 **Ctrl+T** 打开新标签页，应看到三张悬浮卡片
@@ -66,6 +70,7 @@ edge-panel/
 │   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（Cursor / 磁盘 / Matrix 三张卡片）
 │   ├── options.html/js     # 设置页（cursor、Matrix version、持仓、SSH；下载模板/导入）
 │   ├── deepseek-overlay.js # content script：DeepSeek 会话页持仓浮层（只读 + 复制快照）
+│   ├── anjuke-overlay.js   # content script：安居客地图找房气泡户型浮层（标签 + 面板 + 调接口补齐）
 │   ├── yaml.js             # 极简 YAML 子集解析器（「导入配置」用）
 │   ├── config.example.yaml # SSH 配置模板
 │   ├── chart.umd.min.js    # 本地 vendored Chart.js
@@ -87,6 +92,8 @@ edge-panel/
 - 卡片位置/折叠状态存 `chrome.storage.local`（`newtabCards`）；持仓配置同样存 local（含金额，**不**随浏览器账号上云）；Cursor / Matrix / SSH 配置仍在 `chrome.storage.sync`。
 - **服务器磁盘**由扩展后台（service worker）经 `connectNative` 发起采集，宿主流式上报进度（逐服务器 + 每 10s 心跳保活），因此**关掉新标签页采集仍继续**；进度持久化在 `chrome.storage.local`，重新打开时先显示「正在采集到 xx」。
 - 扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers，统一由 [background.js](extension/background.js) 的 `declarativeNetRequest` 规则注入（cursor cookie 每次打开新标签页时从 `chrome.cookies` 刷新；新浪行情强制要求 Referer）。**content script 的 fetch 受页面源 CORS 约束**，所以持仓浮层的行情一律经 background 代理。
+- **安居客地图找房浮层**（`anjuke-overlay.js`）：气泡是纯 DOM（`div.mark.mark-point`），但**地图平移时会回收复用这些节点**，所以重扫靠「文本比对 + rAF 节流」做幂等。取数参数不是猜的 —— background 用 `webRequest`（MV3 只能观察、不能拦截）**看页面自己发的那条请求**，抄下 bbox/zoom/筛选后再由 background 取纯 JSON（该接口不返回 CORS 头，content script 自己 fetch 会被页面源 CORS 拦）。
+- 安居客全量户型走专用接口 `GET {origin}/aifang/web/ajax/LoudongHuxing/?loupan_id=<id>`（与地图页**同源**、需 `x-requested-with: XMLHttpRequest`）—— 地图接口自带的 `house_types` **服务端写死最多 3 条**。响应结构未公开，解析器**不依赖字段名**（递归找「带房型串」的对象），解析不出会把原始响应打到 console；兜底顺序：接口 → 详情页 HTML 文本特征 → 同源 iframe；详情页若前端渲染拿不到，用**同源 iframe** 渲染后读 `contentDocument` 兜底（该站 CSP `frame-ancestors` 允许 `*.anjuke.com`）。户型提取**不依赖 class 名**，按「房型+面积+总价」文本特征聚类，页面改版不易失效。参考总价 = 面积 × 均价（接口不给总价，显示时带 `~`）。
 - 历史：项目最初是 FastAPI 后端 + 新标签页前端的 Python 服务，后迁移为侧边栏扩展；现已回到新标签页形态，并移除了 Logshed 探测与知乎阅读流。
 
 ## 开发
