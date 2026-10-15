@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "edge-panel",
-  "version": "0.7.2",
-  "description": "新标签页悬浮仪表盘 — Cursor 费用 / 服务器磁盘 / Matrix 跳转；DeepSeek 会话页持仓浮层；安居客地图找房户型浮层",
+  "version": "0.8.1",
+  "description": "新标签页悬浮仪表盘 — Cursor 费用 / 服务器磁盘 / Release Matrix 状态；DeepSeek 会话页持仓浮层；安居客地图找房户型浮层",
   "minimum_chrome_version": "101",
   "permissions": ["storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads", "clipboardWrite", "webRequest"],
   "host_permissions": [
     "*://cursor.com/*",
     "*://*.cursor.com/*",
+    "*://cygnus.telenav.com/*",
     "*://qt.gtimg.cn/*",
     "*://hq.sinajs.cn/*",
     "*://api.fang.anjuke.com/*",

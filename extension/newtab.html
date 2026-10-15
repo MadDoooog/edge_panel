@@ -45,16 +45,27 @@
       </div>
     </section>
 
-    <!-- 3. Release Matrix 跳转 -->
-    <section class="card card-mini" id="card-matrix" data-card="matrix">
+    <!-- 3. Release Matrix 状态（region-version-PBF-NGX-QA-NGX） -->
+    <section class="card" id="card-matrix" data-card="matrix">
       <div class="card-head" title="拖动移动 · 单击折叠">
         <span class="caret" aria-hidden="true"></span>
         <span class="card-title">Matrix</span>
         <span class="card-meta" id="matrix-version"></span>
+        <button type="button" class="icon-btn" id="matrix-refresh" title="刷新">↻</button>
         <a class="icon-btn" id="matrix-open" href="#" target="_blank" rel="noopener" title="在新标签页打开">↗</a>
       </div>
       <div class="card-body">
-        <a class="matrix-link" id="matrix-link" href="#" target="_blank" rel="noopener">打开 Release Matrix</a>
+        <table class="matrix-table" id="matrix-table" hidden>
+          <thead>
+            <tr><th>Region</th><th>Version</th><th>PBF</th><th>NGX</th><th>QA-NGX</th></tr>
+          </thead>
+          <tbody id="matrix-rows"></tbody>
+        </table>
+        <div class="matrix-note" id="matrix-note">加载中…</div>
+        <div class="matrix-foot">
+          <span class="matrix-foot-meta" id="matrix-updated"></span>
+          <a class="matrix-link" id="matrix-link" href="#" target="_blank" rel="noopener">打开 Release Matrix</a>
+        </div>
       </div>
     </section>
   </main>

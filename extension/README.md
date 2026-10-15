@@ -2,7 +2,7 @@
 
 MV3 零构建扩展，改 JS/CSS/HTML 直接生效。三个显示位置：
 
-1. **新标签页**（`chrome_url_overrides.newtab` → `newtab.html`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 跳转**，可拖动、可折叠，位置记忆。
+1. **新标签页**（`chrome_url_overrides.newtab` → `newtab.html`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 状态**，可拖动、可折叠，位置记忆。
 2. **DeepSeek 会话页**（content script `deepseek-overlay.js`）：在设置为指定会话 id 的会话页显示**持仓浮层**。
 3. **安居客地图找房页**（content script `anjuke-overlay.js`）：地图气泡下方挂标签显示**户型 / 面积 / 参考总价**，点开面板可调 `LoudongHuxing` 接口补齐全部户型。
 
@@ -14,7 +14,7 @@ MV3 零构建扩展，改 JS/CSS/HTML 直接生效。三个显示位置：
 |------|------|----------|
 | 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com（host_permissions 免 CORS；Cookie/Origin/Referer 由 background 的 DNR 注入）；team_id / user_id 从 cookie 自动推导，通常只需填 user_email；10 分钟缓存 + 403 自愈重试 |
 | 新标签页卡片 | 服务器磁盘 | Native Messaging → Go 宿主按需 SSH 采集（df + du）；宿主流式上报进度，采集由 background 持有，关页面后继续；24h 内不重复查询 |
-| 新标签页卡片 | Release Matrix 跳转 | 纯链接卡片；`version` 在设置页配置（`releaseMatrixVersion`，默认 `26q3`） |
+| 新标签页卡片 | Release Matrix 状态 | 经 background 调 cygnus 的 DataTables 取数接口（Cookie/Origin/Referer 由 DNR 规则 5 注入 —— Chrome 对跨源 POST 自动加的 `Origin: chrome-extension://<id>` 必须覆盖，否则站点 403；`X-CSRFToken` 取 `csrftoken` cookie），表格列 **region / version / PBF / NGX / QA-NGX**（状态色：已发布·已验证·成功=绿，进行中=蓝，等待=灰，取消·失败=红，缺组件=—），行 title 带完整行名与原始英文状态；`version` 在设置页配置（`releaseMatrixVersion`，默认 `26q3`，可逗号分隔多版本），`region` 固定 `hkm,isc,sea`；5 分钟缓存 + ↻ 强刷 |
 | DeepSeek 会话页 | 持仓浮层 | **默认收成悬浮球** `[● 持仓 \| ⧉ \| ⌄]`：圆点=状态（绿在带内 / 橙出带 / 红行情失败）；**点「持仓」= 直接转附件**（成功留在球里，没进附件通道就自动展开卡片）；`⧉` 复制、`⌄` 展开明细；整块可拖动。卡片里：持仓明细、合计、四类占比、出带信号 + 三个动作（**复制** / **填入** / **转附件**）。份额/成本手工录入，现价经 background 从**腾讯+新浪双源**拉取互验（GBK 解码）；**配色跟随 DeepSeek 自己的浅色/深色** |
 | 安居客地图找房页 | 户型浮层 | 气泡（`div.mark.mark-point`）下方挂「**详情**」按钮（**默认不回显**地图接口自带的那 3 条）。点开 Shadow DOM 面板会**自动**调 `LoudongHuxing` 取全部户型，表格只列 **户型/面积/总价** 三列 + 复制 + 去详情页；加载成功后按钮文字就地刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要（`|` 分隔，最多 `BADGE_MAX_ITEMS=4` 条，超出 `…+N`；完整列表见 `title` 与面板）。失败时给「重试」按钮并保留地图接口自带的前几条兜底 |
 | 设置页 | 配置 | Cursor 标识、Matrix version、持仓、SSH 服务器；下载配置模板 / 导入 |
@@ -25,7 +25,7 @@ MV3 零构建扩展，改 JS/CSS/HTML 直接生效。三个显示位置：
 2. 按 **Ctrl+T**：新标签页即仪表盘。卡片标题栏**单击折叠/展开、拖动移动**，位置与折叠状态存 `chrome.storage.local`。
 3. 点工具栏图标（或新标签页右上角 ⚙）进设置页：
    - **Cursor**：`team_id` / `user_id` / `user_email`
-   - **Release Matrix**：`version`
+   - **Release Matrix**：`version`（取数接口的 `version` 参数，可逗号分隔；需先登录 cygnus.telenav.com）
    - **持仓**：DeepSeek 会话 id（可直接粘整条 URL）、持仓列表、应急金、可投资现金腿、目标占比与带宽、佣金
    - **SSH 服务器**：服务器卡片的数据源（直接填写，或下载模板填写后导入）
    - Cookie 无需填写——自动读取浏览器登录态（cursor.com 的 `WorkosCursorSessionToken`）

@@ -565,12 +565,43 @@ async function fetchCursorUsage(force = false) {
 document.getElementById("cursor-refresh").addEventListener("click", () => fetchCursorUsage(true));
 
 /* ============================================================
-   Release Matrix 跳转（version 由设置页配置）
+   Release Matrix 状态（region-version-PBF-NGX-QA-NGX）
+   取数在 background（cygnus 的 cookie 与 X-CSRFToken 必须来自同一次
+   chrome.cookies 读取，见 background.js 的 DNR 规则 5）；这里只渲染。
+   version 仍取设置页配置（可逗号分隔多个），region 固定 hkm,isc,sea。
    ============================================================ */
-async function initMatrixCard() {
-  const stored = await chrome.storage.sync.get({ releaseMatrixVersion: RELEASE_MATRIX_DEFAULT_VERSION });
-  const version =
-    String(stored.releaseMatrixVersion || RELEASE_MATRIX_DEFAULT_VERSION).trim() || RELEASE_MATRIX_DEFAULT_VERSION;
+const MATRIX_STATUS_LABELS = {
+  released: ["已发布", "ok"],
+  verified: ["已验证", "ok"],
+  success: ["成功", "ok"],
+  approved: ["已批准", "ok"],
+  ready: ["待发布", "warn"],
+  running: ["进行中", "accent"],
+  "in-progress": ["进行中", "accent"],
+  waiting: ["等待", "muted"],
+  cancelled: ["已取消", "danger"],
+  failed: ["失败", "danger"],
+  error: ["失败", "danger"],
+  deleted: ["已删除", "danger"],
+};
+
+/** 单个组件状态 → 彩色小标签（原始英文状态与 ATC/ETC 放 title）。 */
+function matrixChip(st) {
+  if (!st || !st.status) return '<span class="matrix-chip none">—</span>';
+  const [label, tone] = MATRIX_STATUS_LABELS[st.status] || [st.status, "muted"];
+  const tip = [st.status, st.atc ? `ATC ${st.atc}` : "", st.etc ? `ETC ${st.etc}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  return `<span class="matrix-chip ${tone}" title="${escHtml(tip)}">${escHtml(label)}</span>`;
+}
+
+function matrixTime(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function setMatrixLinks(version) {
   const url = RELEASE_MATRIX_BASE_URL + encodeURIComponent(version);
   for (const id of ["matrix-link", "matrix-open"]) {
     const el = document.getElementById(id);
@@ -579,9 +610,88 @@ async function initMatrixCard() {
       el.title = url;
     }
   }
+}
+
+function renderMatrix(payload) {
+  const tbody = document.getElementById("matrix-rows");
+  const table = document.getElementById("matrix-table");
+  const note = document.getElementById("matrix-note");
+  const rows = payload.rows || [];
+
+  // 同一 region+version 有多行（不同产品线）时，在 region 后补产品名区分
+  const dup = {};
+  for (const r of rows) dup[`${r.region}-${r.version}`] = (dup[`${r.region}-${r.version}`] || 0) + 1;
+
+  tbody.innerHTML = rows
+    .map((r) => {
+      const productTag =
+        dup[`${r.region}-${r.version}`] > 1 && r.product
+          ? `<span class="matrix-product">${escHtml(r.product)}</span>`
+          : "";
+      const tip = [r.name, r.overall ? `整体 ${r.overall}` : "", r.builtAt ? `构建于 ${r.builtAt}` : ""]
+        .filter(Boolean)
+        .join(" · ");
+      return `<tr title="${escHtml(tip)}">
+        <td class="matrix-region">${escHtml(r.region || r.name)}${productTag}</td>
+        <td class="matrix-version">${escHtml(r.version || "—")}</td>
+        <td>${matrixChip(r.statuses["PBF"])}</td>
+        <td>${matrixChip(r.statuses["NGX"])}</td>
+        <td>${matrixChip(r.statuses["QA-NGX"])}</td>
+      </tr>`;
+    })
+    .join("");
+
+  table.hidden = !rows.length;
+  note.className = "matrix-note";
+  note.hidden = rows.length > 0;
+  if (!rows.length) note.textContent = `版本 ${payload.version} 在 ${payload.region} 下暂无 release`;
+
+  const filtered = payload.filtered || rows.length;
+  document.getElementById("matrix-updated").textContent =
+    rows.length && filtered > rows.length
+      ? `${rows.length}/${filtered} 条 · ${matrixTime(payload.at)} 更新`
+      : `${rows.length} 条 · ${matrixTime(payload.at)} 更新`;
+
+  document.getElementById("matrix-version").textContent = payload.version;
+  setMatrixLinks(payload.version);
+}
+
+function renderMatrixError(err) {
+  const msg = String((err && err.message) || err);
+  document.getElementById("matrix-table").hidden = true;
+  document.getElementById("matrix-rows").innerHTML = "";
+  document.getElementById("matrix-updated").textContent = "";
+  const note = document.getElementById("matrix-note");
+  note.className = "matrix-note error";
+  note.hidden = false;
+  note.textContent = `⚠ ${msg}${/403|登录/.test(msg) ? "" : "，点 ↻ 重试"}`;
+}
+
+async function refreshMatrix(force) {
+  const btn = document.getElementById("matrix-refresh");
+  btn?.classList.add("spinning");
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: "matrix-releases", force: force === true });
+    if (!resp || !resp.ok) throw new Error((resp && resp.error) || "后台无响应");
+    renderMatrix(resp);
+  } catch (err) {
+    console.error("[matrix] error:", err);
+    renderMatrixError(err);
+  } finally {
+    btn?.classList.remove("spinning");
+  }
+}
+
+async function initMatrixCard() {
+  const stored = await chrome.storage.sync.get({ releaseMatrixVersion: RELEASE_MATRIX_DEFAULT_VERSION });
+  const version =
+    String(stored.releaseMatrixVersion || RELEASE_MATRIX_DEFAULT_VERSION).trim() || RELEASE_MATRIX_DEFAULT_VERSION;
+  setMatrixLinks(version);
   const meta = document.getElementById("matrix-version");
   if (meta) meta.textContent = version;
 }
+
+document.getElementById("matrix-refresh").addEventListener("click", () => refreshMatrix(true));
 
 /* ============================================================
    启动
@@ -595,12 +705,16 @@ async function initMatrixCard() {
 
   initMatrixCard();
   authReady.then(() => fetchCursorUsage()); // 打开时优先用缓存
+  authReady.then(() => refreshMatrix(false)); // 同上：cookie 刷新后再取 Matrix
   initMetrics();
 
   // 跟随浏览器主题：亮/暗切换时重绘图表
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
     if (lastChartData) renderCursorChart(lastChartData.labels, lastChartData.values, lastChartData.centsArr);
   });
+
+  // Matrix 的 release 状态变化慢，页面挂着期间每 5 分钟对一次（background 有 5 分钟缓存）
+  setInterval(() => refreshMatrix(false), 5 * 60 * 1000);
 
   // 页面挂着期间周期性刷新 DNR cookie，避免长时间挂着的会话 token 轮换后 403
   setInterval(() => {

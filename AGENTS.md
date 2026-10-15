@@ -6,7 +6,7 @@
 
 `edge-panel` 是一个 **纯浏览器扩展**（MV3，零构建，改 JS/CSS/HTML 直接生效），把个人仪表盘做成**新标签页上的悬浮卡片**，并在指定的 DeepSeek 会话页显示**持仓浮层**。
 
-- **新标签页**（`chrome_url_overrides.newtab`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 跳转**，可拖动、可折叠、位置记忆
+- **新标签页**（`chrome_url_overrides.newtab`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 状态**，可拖动、可折叠、位置记忆
 - **DeepSeek 会话页**（content script）：**持仓浮层** —— 默认是「持仓」悬浮球，点开是卡片；份额/成本手工录入，现价经 background 从腾讯+新浪双源拉取互验，市值/浮盈/四类占比本地算，「复制快照」或「填入输入框」
 - **安居客地图找房页**（content script）：**户型浮层** —— 地图气泡下挂「**详情**」按钮；点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价** 三列），标签文字随即就地刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 这样的缩略摘要（`|` 分隔，最多 `BADGE_MAX_ITEMS` 条，超出 `…+N`，完整列表在 `title` 与面板里）
 - **点工具栏图标 = 打开设置页**；**没有侧边栏**（Side Panel API 与相关权限已移除）
@@ -56,7 +56,7 @@ bash package.sh
 
 ## 关键约束（改扩展代码前必读）
 
-- **扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers** —— 由 [background.js](extension/background.js) 的 `declarativeNetRequest` 动态规则在请求前注入（cursor cookie 每次打开新标签页时经 `refresh-auth` 刷新），所有直连 fetch 用 `credentials:"omit"` 避免 cookie 重复。新增直连源站时同步更新 DNR 规则。现有规则 id：**1** cursor 排名、**2** cursor 用量、**4** 新浪行情 Referer；**3 = 已删除的知乎规则**，仅在 `removeRuleIds` 里保留以清理旧安装残留。
+- **扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers** —— 由 [background.js](extension/background.js) 的 `declarativeNetRequest` 动态规则在请求前注入（cursor cookie 每次打开新标签页时经 `refresh-auth` 刷新），所有直连 fetch 用 `credentials:"omit"` 避免 cookie 重复。新增直连源站时同步更新 DNR 规则。现有规则 id：**1** cursor 排名、**2** cursor 用量、**4** 新浪行情 Referer、**5** cygnus（Release Matrix 取数的 cookie + Referer）；**3 = 已删除的知乎规则**，仅在 `removeRuleIds` 里保留以清理旧安装残留。
 - **content script 的 `fetch` 受页面源 CORS 约束**，扩展 `host_permissions` 对它**不生效**，行情接口也不返回 CORS 头 —— 因此 `deepseek-overlay.js` 的取价必须走 background 代理（`{type:"finance-quotes"}`），不能在浮层里直接 fetch。腾讯行情是 **GBK**，必须 `TextDecoder("gbk")`；新浪行情缺 Referer 会 403（实测），靠 DNR 规则 4。
 - **安居客浮层的取数参数靠 `webRequest` 观察，不靠注入页面世界**（改 `anjuke-overlay.js` / `background.js` 前必读）：地图页自己用 jQuery JSONP 调 `api.fang.anjuke.com/web/loupan/mapNewlist/`，该接口**不返回任何 `Access-Control-*` 头**，所以 content script 不能自己 fetch；background 用 `chrome.webRequest.onBeforeRequest`（**MV3 只能观察、不能拦截**）抄下那条请求 URL 里的 `bbox/zoom/筛选`，再用同参数取纯 JSON（去掉 `callback` 就是纯 JSON，`page_size` 服务端硬上限 100）推回浮层。这样零页面上下文代码、不依赖页面用的 jQuery 内部实现，也不用把 `minimum_chrome_version` 抬到 `world:"MAIN"` 要求的 111 —— **manifest 的 `webRequest` 权限和 `*://api.fang.anjuke.com/*` host 权限不能删**。接口实测**不需要 cookie / Referer**，故不新增 DNR 规则。
 - **安居客气泡的 DOM 特性**：气泡是 `div.mark.mark-point`（纯 DOM，无 canvas/iframe），坐标是内联 `left/top`；**地图平移会回收复用这些节点**（只改 `style` 与文本，不增不删）→ `MutationObserver` 必须同时监听 `attributes`（`attributeFilter:["style","class"]`）+ `characterData`，且重扫必须幂等（`markText()` 文本比对 + `rAF` 节流）。**读气泡文本必须用 `markText()` 排除自己注入的标签/面板**，否则标签文字会被读回来污染名称解析（实测会退化成前缀匹配）。价格单位是 **`m²`(U+00B2)**，不是 `㎡`(U+33A1)。楼盘名与价格**连写无分隔符**（`浐灞1016000元/m²`）→ 名称匹配三级：剥价格精确 / 原文精确 / 索引最长前缀。DOM 上拿不到 `loupan_id`，只能靠名字匹配。
@@ -67,7 +67,8 @@ bash package.sh
 - **「空白页悬浮卡片」只能靠接管新标签页实现** —— 扩展无法向 `about:blank` 注入脚本，`chrome_url_overrides.newtab` 是唯一稳妥做法。改 `newtab.*` 就是改整个仪表盘。
 - **扩展目录路径不能变**：Edge/Chrome 给解压缩扩展分配的 ID 由**目录绝对路径**算出（manifest 无 `key`）。换路径 = 新 ID = `storage.sync` 配置清空 + Native 宿主 `allowed_origins` 失配（服务器卡片报 host not found，需重跑 `install-edge-panel-host.bat`）。**原地覆盖升级**是正确姿势。
 - **content script 边界**（`deepseek-overlay.js`）：**不读对话内容、不自动发送**；挂载判定**只看 URL**（`/a/:agentId/s/:sessionId`），不依赖页面 DOM 选择器；样式用 Shadow DOM + `adoptedStyleSheets` 隔离，配色跟随 **DeepSeek 自己的浅色/深色**（采样页面实际背景色，2s 轮询，非浏览器主题）。写页面的动作只有用户点击才发生：**填入**（合成一次 `paste` 事件让 DeepSeek 自己决定"文本 / 转 .txt 附件"；它不接管时用 `execCommand("insertText")` 或原生 setter + `input` 事件追加文本）与**转附件**（`file input` 注入 `File` + 派发 `change`）。**两条路都失败就退回剪贴板，绝不静默**。默认形态是「持仓」悬浮球，点开才是卡片。
-- **存储分区**：Cursor / Matrix / SSH 配置在 `chrome.storage.sync`；**持仓配置（`financeConfig`）与卡片位置（`newtabCards`）在 `chrome.storage.local`** —— 含金额，不要挪到 sync（sync 会同步到浏览器账号云端）。
+- **Release Matrix 取数靠 DNR 规则 5，且 cookie 与 CSRF token 必须同源**：`POST https://cygnus.telenav.com/release_matrix/releases/index` 是 Django 的 DataTables serverSide 接口，实测三件事缺一不可 —— ① Cookie（SameSite=Lax，扩展发的跨站请求带不上 → 只能 DNR 注入）② `Referer`（Django 对 HTTPS 请求做 CSRF 校验，没 Referer 直接 403）③ `Origin` —— **Chrome 对跨源 POST 会自动加 `Origin: chrome-extension://<id>`，而该站点只要 Origin 不等于站点自身就 403**（实测：`chrome-extension://…` → 403、`Origin: null` → 403、站点 origin → 200、**完全不发 Origin → 200**），所以 DNR 必须用 `set` 把它覆盖回 `https://cygnus.telenav.com`）④ `X-CSRFToken`（**值可以直接用 `csrftoken` cookie 原文**：Django 同时接受 32 位未掩码 secret 与 64 位掩码 token，因此不必刮页面 HTML）。**漏掉 ③ 是上线后唯一的 403 原因** —— 本地用 node/curl 验证时不会自动带 Origin，会「假绿」，离线测试必须自己补上 `Origin: chrome-extension://<id>` 再套 DNR 规则。取数放在 **background** 而不是新标签页，就是为了让 DNR 注入的 cookie 与 header 里的 token 来自**同一次** `chrome.cookies` 读取（`updateAuthRules()` 现在返回 `{cursorCookie, cygnusCookie}`）—— 分两次读会在 csrf cookie 轮换时 403。请求体必须**照抄 DataTables 的序列化**（`columns[…]` / `order[0]` / `search[value]` 全都要，少一个服务端返回 0 行而不报错）；面板列 `region-version-PBF-NGX-QA-NGX` 里 region/version 行内没有独立字段，只能从行名 `PRODUCT-REGION-VERSION-<14 位时间戳>` 拆（`parseReleaseName`），三个状态取 `nodes['PBF'|'NGX'|'QA-NGX'].status`。manifest 的 `*://cygnus.telenav.com/*` host 权限不能删（DNR modifyHeaders 与 `chrome.cookies` 都依赖它）。
+- **存储分区**：Cursor / Matrix / SSH 配置在 `chrome.storage.sync`；**持仓配置（`financeConfig`）与卡片位置（`newtabCards`）在 `chrome.storage.local`** —— 含金额，不要挪到 sync（sync 会同步到浏览器账号云端）。Matrix 取数结果缓存 `matrixReleases`（5 分钟）也在 local。
 - **Native 宿主必须在浏览器所在系统运行**（Windows 版 Edge → Windows 侧）。native messaging 只能拉起浏览器本机的进程。宿主与安装脚本由 `package.sh` 交叉编译后随扩展包分发，安装时由扩展从插件资源下载、用户双击 `install-edge-panel-host.bat` 用 `reg.exe` 注册 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts\`。
 - 扩展页默认 CSP `script-src 'self'` —— 脚本必须用外部 `.js`，**不要内联脚本**（样式同理：页面只 `<link>` 外置 CSS，不写内联 `<style>`）。
 - **外观统一走 `theme.css` 的 CSS 变量**（`prefers-color-scheme` 切亮/暗，取色贴近浏览器原生界面）：新标签页与设置页都引用它，**不要在页面里硬编码颜色**。`newtab.js` 的图表配色是运行时从这些变量读的（`themeColors()`），系统主题变化时重绘 —— 新增图形沿用这个模式。唯一例外是 `deepseek-overlay.js`：它浮在别人的网页上、样式内联在 JS 里，配色跟随 **DeepSeek 自己的浅色/深色**（采样页面背景色），不走 `theme.css`。
@@ -75,7 +76,7 @@ bash package.sh
 
 ## 扩展模块
 
-- `extension/newtab.js` — 新标签页编排：卡片拖动/折叠/位置持久化（`newtabCards`）+ Cursor 图表（Chart.js）+ 服务器磁盘渲染（采集进度、宿主安装引导）+ Matrix 链接（`releaseMatrixVersion`）
+- `extension/newtab.js` — 新标签页编排：卡片拖动/折叠/位置持久化（`newtabCards`）+ Cursor 图表（Chart.js）+ 服务器磁盘渲染（采集进度、宿主安装引导）+ Matrix 状态表（渲染 background 取回的 release 列表，列 `region-version-PBF-NGX-QA-NGX`；`version` 取 `releaseMatrixVersion`，region 固定 `hkm,isc,sea`；↻ 强刷，页面挂着时每 5 分钟对一次）
 - `extension/deepseek-overlay.js` — content script：持仓浮层。**默认收成「持仓」悬浮球**：`[● 持仓 | ⧉ | ⌄]` —— 圆点=状态（绿在带内/橙出带/红行情失败）；**点圆点+「持仓」= 直接转附件**（成功留在球里，没进附件通道就自动展开卡片让用户换按钮）；`⧉` 复制快照；`⌄` 展开看明细。整块可拖动。卡片三个动作：**复制**、**填入**、**转附件**。
   - **「长文本自动转 .txt 附件」是 DeepSeek 自己的逻辑**（`onPaste` 里：`pastedText.length > pasteTextToFileLimit && canAddFile` → `preventDefault()` + `new File([text], "<首行≤50字>.txt", {type:"text/plain;charset=utf-8"})` + `fileSource:"paste"` 上传）。阈值是**运行时 config，前端 bundle 里没有字面量**，无法静态得知。
   - 因此「填入」= **合成一次真实粘贴**（`new ClipboardEvent("paste",{clipboardData: dt})`）让 DeepSeek 自己判断；`dispatchEvent()` **返回 false 就等于它接管了（已转附件）**，因为它只在转附件那条分支调用 `preventDefault()`。「转附件」= 先走同一条粘贴路径，它没接管再用 **file input 注入**（`new File(...)` → `input.files = dt.files` → 派发 `change`）兜底，确保一定进文件通道。
@@ -141,6 +142,9 @@ SSH 配置在设置页（options.html）「SSH 服务器」区块编辑，保存
 | 改完 JS 没生效 | 需在 edge://extensions 点「重新加载」，再刷新新标签页 |
 | 服务器卡片报 host not found | Native 宿主未注册，或扩展目录路径变过导致 ID 变了（重新双击 `install-edge-panel-host.bat`） |
 | Cursor 卡片 403 | 浏览器里未登录 cursor.com，或 cookie 过期 |
+| Matrix 卡片 403 | 浏览器里未登录 cygnus.telenav.com（读不到 `csrftoken`/`auth_token` cookie），或 DNR 规则 5 没生效 —— 重载扩展后点 ↻；设置页 `version` 写错版本号不会 403，只会「暂无 release」 |
+| Matrix 卡片「暂无 release」 | `version` 参数与站点上的版本号不一致（大小写不敏感，但 `26m10w2` ≠ `26q3`）；region 固定 `hkm,isc,sea`，其他 region 的 release 不会出现 |
+| Matrix 卡片空白/报「返回的不是 JSON」 | 登录态失效被重定向到登录页；登录站点后点 ↻ |
 | 服务器采集失败 | 检查设置页 SSH 配置（凭据 / 网络） |
 | DeepSeek 会话页看不到浮层 | ①设置里没填该会话 id（可直接粘整条 URL）②扩展未重载 ③该页是首页/分享页而非会话页。会话页上会出现说明原因的小角标 |
 | 安居客气泡没出现标签 | ①扩展没重载（改了 manifest，必须重新加载）②日志里没有 `[ajk-bg] 观察到 mapNewlist 请求` → `webRequest` 权限或 host 权限没生效 ③气泡文本与接口名字对不上，用 `__edgePanelAnjuke.dump()` 看 `hit` |

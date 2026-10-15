@@ -12,6 +12,19 @@ chrome.action.onClicked.addListener(() => {
    ============================================================ */
 const CURSOR_ORIGIN = "https://cursor.com";
 
+// cygnus（Release Matrix）的取数接口 POST /release_matrix/releases/index 实测要求：
+//   1) cookie（auth_token / mapilot-auth-token，HttpOnly 也能经 chrome.cookies 读到）
+//   2) Referer —— Django 对 HTTPS 请求做 CSRF 校验时没 Referer 直接 403（实测）
+//   3) X-CSRFToken —— 值可直接用 csrftoken cookie 的原文（Django 同时接受
+//      32 位未掩码 secret 与 64 位掩码 token；前者省掉一次刮页面 HTML）
+// 三者在 background 里一次性读取，避免 DNR 规则里的 cookie 与 header 用的 token
+// 来自两次不同读取（csrf cookie 轮换时会 403）。
+const CYGNUS_ORIGIN = "https://cygnus.telenav.com";
+const CYGNUS_RELEASES_URL = `${CYGNUS_ORIGIN}/release_matrix/releases/index`;
+const CYGNUS_REFERER = `${CYGNUS_ORIGIN}/release_matrix/releases/index?mo=t&region=hkm%2Cisc%2Csea&version=`;
+const MATRIX_REGION = "hkm,isc,sea"; // 与卡片链接里的 region 保持一致
+const MATRIX_DEFAULT_VERSION = "26q3"; // 与 options.js / newtab.js 的默认值一致
+
 async function readCookies(url) {
   try {
     const cookies = await chrome.cookies.getAll({ url });
@@ -28,8 +41,12 @@ async function readCookies(url) {
 // ts 会被置为 now → 空 cookie 被「续」60s → 期间每次 refresh-auth 都复用空值
 // → DNR 持续不注入 cookie → 403,且 cursorFetch 的重试在同一窗口内反复刷新
 // 仍拿到空值,表现为 403 卡死。chrome.cookies.getAll 很轻,读一次的开销可忽略。
+// 返回这次读到的 cookie 串：matrix 取数要用同一份 csrftoken 当 X-CSRFToken。
 async function updateAuthRules() {
-  const cursorCookie = await readCookies("https://cursor.com");
+  const [cursorCookie, cygnusCookie] = await Promise.all([
+    readCookies(CURSOR_ORIGIN),
+    readCookies(CYGNUS_ORIGIN),
+  ]);
 
   const rules = [];
 
@@ -68,6 +85,32 @@ async function updateAuthRules() {
     });
   }
 
+  // cygnus（Release Matrix）取数：扩展页/后台 fetch 是跨站请求，
+  // SameSite=Lax 的登录 cookie 不会被带上，而 Cookie 又是 forbidden header
+  // —— 只能由 DNR 注入；Referer 同理（Django 的 HTTPS CSRF 校验需要）。
+  // origin 必须一起注入：Chrome 对跨源 POST 会自动加
+  // `Origin: chrome-extension://<id>`，而该站点只要 Origin 不等于
+  // https://cygnus.telenav.com 就 403（实测：chrome-extension:// → 403、
+  // Origin: null → 403、正确的站点 origin → 200、不带 Origin → 200）。
+  if (cygnusCookie) {
+    rules.push({
+      id: 5, // release matrix 取数
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [
+          { header: "cookie", operation: "set", value: cygnusCookie },
+          { header: "origin", operation: "set", value: CYGNUS_ORIGIN },
+          { header: "referer", operation: "set", value: CYGNUS_REFERER },
+        ],
+      },
+      condition: {
+        urlFilter: `|${CYGNUS_RELEASES_URL}`,
+        resourceTypes: ["xmlhttprequest"],
+      },
+    });
+  }
+
   // 新浪行情强制校验 Referer（缺了返回 403），而扩展 fetch 无法设置该请求头。
   // 与 cookie 无关，因此无条件注入。
   rules.push({
@@ -86,12 +129,14 @@ async function updateAuthRules() {
   try {
     await chrome.declarativeNetRequest.updateDynamicRules({
       // id 3 = 已删除的知乎规则，一并清掉，避免旧安装残留
-      removeRuleIds: [1, 2, 3, 4],
+      removeRuleIds: [1, 2, 3, 4, 5],
       addRules: rules,
     });
   } catch (err) {
     console.error("[dnr] updateDynamicRules failed:", err);
   }
+
+  return { cursorCookie, cygnusCookie };
 }
 
 // 启动即注入（动态规则持久化、幂等）；侧边栏每次打开时经 onMessage 刷新 cookie
@@ -383,6 +428,171 @@ async function fetchFinanceQuotes(codes, force) {
 }
 
 /* ============================================================
+   Release Matrix 取数（cygnus）
+   ------------------------------------------------------------
+   面板要的是「region - version - PBF - NGX - QA-NGX」这五列，而站点是
+   DataTables 的 serverSide 表格：POST 表单参数（columns/order/search/
+   region/version）→ {data:[…]}，每行 = [name, nodes, overall, violations,
+   product_lines, tags]。
+   - region / version 行里没有单独字段，只能从行名
+     `PRODUCT-REGION-VERSION-<14 位时间戳>` 拆（HOUYI-HKM-26M10W1-20260923004703）
+   - 三个状态取 nodes[key].status，键名就是 PBF / NGX / QA-NGX
+   请求体必须跟页面发的一致：实测少了 columns[…] / order[0] / search[value]
+   服务端会「返回 0 行」而不是报错，所以这里照抄 DataTables 的序列化。
+   放在 background 而不是新标签页：这样 DNR 注入的 cookie 与 X-CSRFToken
+   来自同一次 chrome.cookies 读取（见 updateAuthRules 的注释）。
+   ============================================================ */
+const MATRIX_CACHE_KEY = "matrixReleases";
+const MATRIX_TTL_MS = 5 * 60 * 1000; // release 状态变化慢，5 分钟足够
+const MATRIX_PAGE_LENGTH = 10; // 与站点首页一致
+const MATRIX_STATUS_KEYS = ["PBF", "NGX", "QA-NGX"];
+
+/** 站点表格的请求体（DataTables serverSide 的序列化，参数顺序无关）。 */
+function buildMatrixBody({ region, version, start = 0, length = MATRIX_PAGE_LENGTH }) {
+  const p = new URLSearchParams();
+  p.set("draw", "1");
+  for (let i = 0; i < 3; i++) {
+    p.set(`columns[${i}][data]`, String(i));
+    p.set(`columns[${i}][name]`, "");
+    p.set(`columns[${i}][searchable]`, "true");
+    p.set(`columns[${i}][orderable]`, i === 0 ? "false" : "true");
+    p.set(`columns[${i}][search][value]`, "");
+    p.set(`columns[${i}][search][regex]`, "false");
+  }
+  p.set("order[0][column]", "1"); // 与站点一致：按 Components 列倒序
+  p.set("order[0][dir]", "desc");
+  p.set("start", String(start));
+  p.set("length", String(length));
+  p.set("search[value]", "");
+  p.set("search[regex]", "false");
+  p.set("project", "");
+  p.set("region", region);
+  p.set("version", version);
+  return p.toString();
+}
+
+/** 从 cookie 串里取一个 cookie 的值（没有则空串）。 */
+function cookieValue(cookieStr, name) {
+  for (const part of String(cookieStr || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i < 0) continue;
+    if (part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
+  }
+  return "";
+}
+
+/** 行名 `PRODUCT-REGION-VERSION-<14 位时间戳>` → 四段；拆不出时原样返回 name。 */
+function parseReleaseName(name) {
+  const raw = String(name || "");
+  const m = raw.match(/^(.*)-([A-Za-z]{2,})-(v?[0-9]{2}[A-Za-z][0-9A-Za-z._]*)-([0-9]{14})$/);
+  if (!m) return { name: raw, product: "", region: "", version: "", builtAt: "" };
+  return {
+    name: raw,
+    product: m[1],
+    region: m[2].toUpperCase(),
+    version: m[3].toUpperCase(),
+    builtAt: m[4],
+  };
+}
+
+/** DataTables 响应 → 面板用的行（只保留要展示的字段）。 */
+function parseMatrixRows(json) {
+  const data = json && Array.isArray(json.data) ? json.data : [];
+  return data.map((row) => {
+    const name = String((row && row[0]) || "");
+    const nodes = (row && row[1]) || {};
+    const statuses = {};
+    for (const key of MATRIX_STATUS_KEYS) {
+      const node = nodes[key] || null;
+      statuses[key] = node
+        ? {
+            status: String(node.status || ""),
+            type: String(node.type || ""),
+            atc: String(node.atc || ""),
+            etc: String(node.etc || ""),
+          }
+        : null;
+    }
+    return {
+      ...parseReleaseName(name),
+      overall: String((row && row[2]) || ""),
+      violations: Array.isArray(row && row[3]) ? row[3] : [0, ""],
+      statuses,
+    };
+  });
+}
+
+async function readMatrixCache() {
+  try {
+    const obj = await chrome.storage.local.get(MATRIX_CACHE_KEY);
+    return obj[MATRIX_CACHE_KEY] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * 取 Matrix release 列表。version 取设置页的 releaseMatrixVersion（可逗号分隔
+ * 多个）；缓存命中且版本一致时直接返回，force=true 跳过缓存（↻ 语义）。
+ */
+async function fetchMatrixReleases(force) {
+  const stored = await chrome.storage.sync.get({ releaseMatrixVersion: MATRIX_DEFAULT_VERSION });
+  const version = String(stored.releaseMatrixVersion || "").trim() || MATRIX_DEFAULT_VERSION;
+
+  const cached = force ? null : await readMatrixCache();
+  if (cached && cached.version === version && Date.now() - (cached.ts || 0) < MATRIX_TTL_MS) {
+    return { ok: true, cached: true, ...cached };
+  }
+
+  // 这一次读到的 cygnus cookie 同时用于 DNR 注入与 X-CSRFToken
+  const { cygnusCookie } = await updateAuthRules();
+  const csrf = cookieValue(cygnusCookie, "csrftoken");
+  if (!cygnusCookie || !csrf) {
+    throw new Error("没读到 cygnus.telenav.com 的登录 cookie —— 请先在浏览器登录该站点");
+  }
+
+  const resp = await fetch(CYGNUS_RELEASES_URL, {
+    method: "POST",
+    credentials: "omit", // cookie 由 DNR 规则 5 注入，避免 SameSite 丢 cookie / 重复
+    cache: "no-store",
+    headers: {
+      Accept: "application/json, text/javascript, */*; q=0.01",
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "X-CSRFToken": csrf,
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    body: buildMatrixBody({ region: MATRIX_REGION, version }),
+  });
+
+  if (resp.status === 403) throw new Error("HTTP 403 —— 请先在浏览器登录 cygnus.telenav.com，再点 ↻");
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  let json;
+  try {
+    json = await resp.json();
+  } catch (_) {
+    throw new Error("返回的不是 JSON（多半被重定向到登录页）—— 请登录 cygnus.telenav.com");
+  }
+
+  const rows = parseMatrixRows(json);
+  const payload = {
+    ts: Date.now(),
+    at: new Date().toISOString(),
+    version,
+    region: MATRIX_REGION,
+    rows,
+    filtered: Number(json.recordsFiltered) || rows.length,
+    total: Number(json.recordsTotal) || rows.length,
+  };
+  try {
+    await chrome.storage.local.set({ [MATRIX_CACHE_KEY]: payload });
+  } catch (err) {
+    console.error("[matrix] cache save failed:", err);
+  }
+  return { ok: true, ...payload };
+}
+
+/* ============================================================
    安居客地图找房：观察页面自己发的 mapNewlist 请求 → 取数 → 推给浮层
    ------------------------------------------------------------
    为什么不直接在 content script 里 fetch：
@@ -543,6 +753,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg && msg.type === "finance-quotes") {
     fetchFinanceQuotes(msg.codes, msg.force === true)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+    return true; // 异步响应
+  }
+  if (msg && msg.type === "matrix-releases") {
+    fetchMatrixReleases(msg.force === true)
       .then(sendResponse)
       .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
     return true; // 异步响应
