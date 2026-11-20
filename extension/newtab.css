@@ -90,6 +90,29 @@ body::before {
   white-space: nowrap;
 }
 
+/* Matrix 卡头的 version：点一下就地变输入框（悬停有底色提示可点）。
+   字体/颜色沿用 .card-meta（mono 11px 灰），这里只把 button 的默认外壳去掉。 */
+.matrix-version-btn {
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: text;
+}
+.matrix-version-btn:hover { background: var(--accent-weak); color: var(--text); }
+
+.matrix-version-input {
+  flex: 0 0 auto;
+  width: 104px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
 /* 卡片头的小图标按钮（↻ 刷新 / ↗ 打开） */
 .icon-btn {
   flex: 0 0 auto;

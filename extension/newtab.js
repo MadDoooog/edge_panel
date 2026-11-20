@@ -17,9 +17,10 @@ const DU_TOP_N = 3;
 const CURSOR_CACHE_KEY = "cursorCache";
 const CURSOR_CACHE_TTL_MS = 10 * 60 * 1000;
 
-const RELEASE_MATRIX_BASE_URL =
-  "https://cygnus.telenav.com/release_matrix/releases/index?mo=t&region=hkm%252Cisc%252Csea&version=";
+const RELEASE_MATRIX_PAGE = "https://cygnus.telenav.com/release_matrix/releases/index";
 const RELEASE_MATRIX_DEFAULT_VERSION = "26q3";
+const RELEASE_MATRIX_DEFAULT_REGION = "hkm,isc,sea";
+const RELEASE_MATRIX_DEFAULT_STAGES = "PBF,NGX,QA-NGX";
 
 // 首次打开时的落位（之后以用户拖动的位置为准）
 const DEFAULT_POS = {
@@ -85,7 +86,8 @@ function bindCardChrome() {
     let drag = null;
 
     head.addEventListener("pointerdown", (e) => {
-      if (e.target.closest("button, a")) return;
+      // 按钮/链接/输入框（如 Matrix 卡头的 version 编辑）不参与拖动，否则点一下会被当成折叠
+      if (e.target.closest("button, a, input, textarea")) return;
       const r = el.getBoundingClientRect();
       drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, id: e.pointerId, moved: 0, sx: e.clientX, sy: e.clientY };
       el.classList.add("dragging");
@@ -314,6 +316,8 @@ document.getElementById("servers-refresh").addEventListener("click", () => reque
 let cursorChartInst = null;
 let cursorStatsData = null;
 let cursorLeaderboard = undefined;
+// 本月（账期）消耗：undefined=取数中，null=没取到，对象=已取到
+let cursorMonth = undefined;
 
 async function loadCursorCache() {
   const obj = await chrome.storage.local.get(CURSOR_CACHE_KEY);
@@ -322,29 +326,51 @@ async function loadCursorCache() {
   return c;
 }
 
-async function saveCursorCache(usage, leaderboard) {
+async function saveCursorCache(usage, leaderboard, month) {
   await chrome.storage.local.set({
-    [CURSOR_CACHE_KEY]: { ts: Date.now(), usage, leaderboard: leaderboard === undefined ? null : leaderboard },
+    [CURSOR_CACHE_KEY]: {
+      ts: Date.now(),
+      usage,
+      leaderboard: leaderboard === undefined ? null : leaderboard,
+      month: month ?? null,
+    },
   });
 }
 
+function statChip(label, value, title) {
+  const attr = title ? ` title="${escHtml(title)}"` : "";
+  return `<span class="stat-chip"${attr}><span class="stat-label">${label}</span><span class="stat-cnt">${value}</span></span>`;
+}
+
+/** 本月消耗芯片（账期内合计）—— 始终排在最前面。 */
+function monthChipHtml() {
+  if (cursorMonth === undefined) return statChip("本月消耗", "…");
+  if (!cursorMonth) return statChip("本月消耗", "—", "没取到账单周期（未登录 / 该账号没有账期接口）");
+  const start = new Date(cursorMonth.startAt).toLocaleDateString("zh-CN");
+  const end = new Date(cursorMonth.endAt).toLocaleDateString("zh-CN");
+  return statChip(
+    "本月消耗",
+    `$${(cursorMonth.cents / 100).toFixed(2)}`,
+    `${start} → ${end}（Cursor 账期，UTC 零点切）· ${cursorMonth.events} 次请求 · ${cursorMonth.tokens.toLocaleString()} tokens`
+  );
+}
+
 function rankChipsHtml() {
-  const chip = (label, value) =>
-    `<span class="stat-chip"><span class="stat-label">${label}</span><span class="stat-cnt">${value}</span></span>`;
-  if (cursorLeaderboard === undefined) return chip("7天排名", "…") + chip("30天排名", "…");
-  if (cursorLeaderboard === null) return chip("7天排名", "—") + chip("30天排名", "—");
+  if (cursorLeaderboard === undefined) return statChip("7天排名", "…") + statChip("30天排名", "…");
+  if (cursorLeaderboard === null) return statChip("7天排名", "—") + statChip("30天排名", "—");
   const fmt = (key) => {
     const r = cursorLeaderboard[key]?.rank;
     return r != null ? `#${r}` : "—";
   };
-  return chip("7天排名", fmt("rank_7d")) + chip("30天排名", fmt("rank_30d"));
+  return statChip("7天排名", fmt("rank_7d")) + statChip("30天排名", fmt("rank_30d"));
 }
 
 function renderCursorStatsPanel() {
   const statsEl = document.getElementById("cursor-stats");
   if (!statsEl) return;
+  const head = monthChipHtml() + rankChipsHtml();
   if (!cursorStatsData) {
-    statsEl.innerHTML = rankChipsHtml();
+    statsEl.innerHTML = head;
     return;
   }
   const { events, totalTokens, totalCents, modelCounts } = cursorStatsData;
@@ -356,10 +382,10 @@ function renderCursorStatsPanel() {
         `<span class="stat-chip"><span class="stat-model">${escHtml(m)}</span><span class="stat-cnt">${c}</span></span>`
     )
     .join("");
-  statsEl.innerHTML = `${rankChipsHtml()}
+  statsEl.innerHTML = `${head}
     <span class="stat-chip"><span class="stat-label">请求</span><span class="stat-cnt">${events.length}</span></span>
     <span class="stat-chip"><span class="stat-label">Tokens</span><span class="stat-cnt">${totalTokens.toLocaleString()}</span></span>
-    <span class="stat-chip"><span class="stat-label">费用</span><span class="stat-cnt">$${(totalCents / 100).toFixed(2)}</span></span>
+    <span class="stat-chip"><span class="stat-label">30天费用</span><span class="stat-cnt">$${(totalCents / 100).toFixed(2)}</span></span>
     ${topModels}`;
 }
 
@@ -395,6 +421,11 @@ function withAlpha(color, alpha) {
   if (!m) return color;
   const n = parseInt(m[1], 16);
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** x 轴日标签（本地日），如 "11/2"。 */
+function dayKey(ms) {
+  return new Date(Number(ms)).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
 function renderCursorChart(labels, values, centsArr) {
@@ -489,14 +520,26 @@ async function fetchCursorUsage(force = false) {
   try {
     let usage;
     const cached = force ? null : await loadCursorCache();
-    if (cached && cached.usage) {
+    // 旧缓存没有 month 字段（升级前的 30 天缓存）→ 当作过期，重取一次，
+    // 免得「本月消耗」在缓存有效期内一直显示「—」。
+    if (cached && cached.usage && cached.month !== undefined) {
       usage = cached.usage;
+      cursorMonth = cached.month;
       if (cached.leaderboard !== undefined) cursorLeaderboard = cached.leaderboard;
     } else {
       const lbPromise = fetchCursorLeaderboard();
+      // 曲线/芯片仍按最近 30 天（面板默认口径）；另外单独取一次「本账期」合计，
+      // 只喂最前面那个「本月消耗」芯片。两段都取不到就各自降级，互不影响。
+      cursorMonth = undefined;
+      renderCursorStatsPanel();
+      const monthPromise = fetchCursorMonthUsage().catch((err) => {
+        console.warn("[cursor-month] 取本月消耗失败:", err.message);
+        return null;
+      });
       usage = await fetchCursorUsageApi();
+      cursorMonth = await monthPromise;
       await lbPromise;
-      await saveCursorCache(usage, cursorLeaderboard);
+      await saveCursorCache(usage, cursorLeaderboard, cursorMonth);
     }
 
     const events = Array.isArray(usage)
@@ -522,9 +565,7 @@ async function fetchCursorUsage(force = false) {
 
     for (const ev of sorted) {
       const ts = ev.timestamp ?? ev.createdAt ?? ev.created_at ?? ev.date;
-      const date = ts
-        ? new Date(Number(ts)).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
-        : "unknown";
+      const date = ts ? dayKey(ts) : "unknown";
       const tu = ev.tokenUsage ?? {};
       const tokens = Number(
         ev.totalTokens ?? ev.total_tokens ?? ev.tokens ?? ((tu.inputTokens ?? 0) + (tu.outputTokens ?? 0))
@@ -537,9 +578,12 @@ async function fetchCursorUsage(force = false) {
     }
 
     const labels = Object.keys(byDate);
-    const values = Object.values(byDate);
+    const values = labels.map((d) => byDate[d] ?? 0);
     const centsArr = labels.map((d) => byCents[d] ?? 0);
-    if (rangeEl && labels.length) rangeEl.textContent = `${labels[0]} – ${labels[labels.length - 1]}`;
+    if (rangeEl && labels.length) {
+      rangeEl.textContent = `${labels[0]} – ${labels[labels.length - 1]}`;
+      rangeEl.title = "最近 30 天（Cursor 用量事件）";
+    }
 
     const modelCounts = {};
     for (const ev of events) {
@@ -558,6 +602,9 @@ async function fetchCursorUsage(force = false) {
       : `加载失败: ${escHtml(err.message)}`;
     emptyEl.hidden = false;
     canvas.hidden = true;
+    // 别让「本月消耗」永远停在「…」上
+    if (cursorMonth === undefined) cursorMonth = null;
+    renderCursorStatsPanel();
   } finally {
     btn?.classList.remove("spinning");
   }
@@ -565,11 +612,34 @@ async function fetchCursorUsage(force = false) {
 document.getElementById("cursor-refresh").addEventListener("click", () => fetchCursorUsage(true));
 
 /* ============================================================
-   Release Matrix 状态（region-version-PBF-NGX-QA-NGX）
+   Release Matrix 状态（region-version-<环节…>）
    取数在 background（cygnus 的 cookie 与 X-CSRFToken 必须来自同一次
    chrome.cookies 读取，见 background.js 的 DNR 规则 5）；这里只渲染。
-   version 仍取设置页配置（可逗号分隔多个），region 固定 hkm,isc,sea。
+   version / region / 环节 都取设置页配置（逗号分隔）；version 在卡片头上
+   直接点就能改，改完写回 sync 并自动刷新。
    ============================================================ */
+const matrixConfig = {
+  version: RELEASE_MATRIX_DEFAULT_VERSION,
+  regions: ["hkm", "isc", "sea"],
+  stages: ["PBF", "NGX", "QA-NGX"],
+};
+
+/** "a, b,,c" → ["a","b","c"]（去空、去重）；全空时用 fallback（逗号串）。 */
+function commaList(raw, fallback) {
+  const parts = String(raw || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const list = parts.length ? parts : String(fallback || "").split(",");
+  return [...new Set(list)];
+}
+
+/** 站点自己地址栏里 region 是二次编码的（hkm%252Cisc%252Csea），照抄。 */
+function matrixPageUrl(version) {
+  const region = encodeURIComponent(encodeURIComponent(matrixConfig.regions.join(",")));
+  return `${RELEASE_MATRIX_PAGE}?mo=t&region=${region}&version=${encodeURIComponent(version)}`;
+}
+
 const MATRIX_STATUS_LABELS = {
   released: ["已发布", "ok"],
   verified: ["已验证", "ok"],
@@ -602,7 +672,7 @@ function matrixTime(iso) {
 }
 
 function setMatrixLinks(version) {
-  const url = RELEASE_MATRIX_BASE_URL + encodeURIComponent(version);
+  const url = matrixPageUrl(version);
   for (const id of ["matrix-link", "matrix-open"]) {
     const el = document.getElementById(id);
     if (el) {
@@ -612,11 +682,22 @@ function setMatrixLinks(version) {
   }
 }
 
+/** 表头跟着「环节」配置走：Region | Version | <环节…>。 */
+function renderMatrixHead(stages) {
+  const head = document.getElementById("matrix-head");
+  if (!head) return;
+  head.innerHTML = `<tr><th>Region</th><th>Version</th>${stages.map((s) => `<th>${escHtml(s)}</th>`).join("")}</tr>`;
+}
+
 function renderMatrix(payload) {
   const tbody = document.getElementById("matrix-rows");
   const table = document.getElementById("matrix-table");
   const note = document.getElementById("matrix-note");
   const rows = payload.rows || [];
+  const stages =
+    Array.isArray(payload.stages) && payload.stages.length ? payload.stages : matrixConfig.stages;
+
+  renderMatrixHead(stages);
 
   // 同一 region+version 有多行（不同产品线）时，在 region 后补产品名区分
   const dup = {};
@@ -634,9 +715,7 @@ function renderMatrix(payload) {
       return `<tr title="${escHtml(tip)}">
         <td class="matrix-region">${escHtml(r.region || r.name)}${productTag}</td>
         <td class="matrix-version">${escHtml(r.version || "—")}</td>
-        <td>${matrixChip(r.statuses["PBF"])}</td>
-        <td>${matrixChip(r.statuses["NGX"])}</td>
-        <td>${matrixChip(r.statuses["QA-NGX"])}</td>
+        ${stages.map((s) => `<td>${matrixChip(r.statuses[s])}</td>`).join("")}
       </tr>`;
     })
     .join("");
@@ -682,16 +761,86 @@ async function refreshMatrix(force) {
   }
 }
 
+/** 保存 version → 写 sync → 改卡头文字 → 自动刷新（跳过 5 分钟缓存）。 */
+async function saveMatrixVersion(next) {
+  matrixConfig.version = next;
+  const btn = document.getElementById("matrix-version");
+  if (btn) btn.textContent = next;
+  setMatrixLinks(next);
+  try {
+    await chrome.storage.sync.set({ releaseMatrixVersion: next });
+  } catch (err) {
+    console.error("[matrix] version 保存失败:", err);
+  }
+  await refreshMatrix(true);
+}
+
+/** 点卡头上的 version → 就地变输入框：Enter 保存 / Esc 取消 / 失焦保存。 */
+function openMatrixVersionEditor() {
+  const btn = document.getElementById("matrix-version");
+  if (!btn || document.getElementById("matrix-version-input")) return;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = "matrix-version-input";
+  input.className = "matrix-version-input";
+  input.value = matrixConfig.version;
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "Release Matrix version");
+  btn.hidden = true;
+  btn.after(input);
+  input.focus();
+  input.select();
+
+  let finished = false;
+  const close = () => {
+    input.remove();
+    btn.hidden = false;
+  };
+  const cancel = () => {
+    if (finished) return;
+    finished = true;
+    close();
+    btn.focus();
+  };
+  const commit = () => {
+    if (finished) return;
+    finished = true;
+    const next = input.value.trim();
+    close();
+    if (next && next !== matrixConfig.version) saveMatrixVersion(next);
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancel();
+    }
+  });
+  input.addEventListener("blur", commit);
+}
+
 async function initMatrixCard() {
-  const stored = await chrome.storage.sync.get({ releaseMatrixVersion: RELEASE_MATRIX_DEFAULT_VERSION });
-  const version =
-    String(stored.releaseMatrixVersion || RELEASE_MATRIX_DEFAULT_VERSION).trim() || RELEASE_MATRIX_DEFAULT_VERSION;
-  setMatrixLinks(version);
+  const stored = await chrome.storage.sync.get({
+    releaseMatrixVersion: RELEASE_MATRIX_DEFAULT_VERSION,
+    releaseMatrixRegion: RELEASE_MATRIX_DEFAULT_REGION,
+    releaseMatrixStages: RELEASE_MATRIX_DEFAULT_STAGES,
+  });
+  matrixConfig.version = String(stored.releaseMatrixVersion || "").trim() || RELEASE_MATRIX_DEFAULT_VERSION;
+  matrixConfig.regions = commaList(stored.releaseMatrixRegion, RELEASE_MATRIX_DEFAULT_REGION);
+  matrixConfig.stages = commaList(stored.releaseMatrixStages, RELEASE_MATRIX_DEFAULT_STAGES);
+
   const meta = document.getElementById("matrix-version");
-  if (meta) meta.textContent = version;
+  if (meta) meta.textContent = matrixConfig.version;
+  renderMatrixHead(matrixConfig.stages);
+  setMatrixLinks(matrixConfig.version);
 }
 
 document.getElementById("matrix-refresh").addEventListener("click", () => refreshMatrix(true));
+document.getElementById("matrix-version").addEventListener("click", openMatrixVersionEditor);
 
 /* ============================================================
    启动

@@ -16,7 +16,7 @@
 }
 .page-head h1 { flex: 1; margin: 0; font-size: 20px; font-weight: 400; color: var(--text); }
 
-/* ── 分节卡片 ─────────────────────────────────────────── */
+/* ── 分节卡片（默认折叠：<details><summary class="card-title">） ── */
 .card + .card { margin-top: 20px; }
 
 .card-title {
@@ -27,6 +27,31 @@
   color: var(--text);
   border-bottom: 1px solid var(--border);
 }
+
+details.card > summary.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+details.card > summary.card-title::-webkit-details-marker { display: none; }
+details.card > summary.card-title:hover { background: var(--surface-2); }
+/* 折叠指示三角：收起 →，展开 ↓ */
+details.card > summary.card-title::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+details.card[open] > summary.card-title::before { transform: rotate(45deg); }
+details.card:not([open]) > summary.card-title { border-bottom: none; }
 
 .row {
   display: grid;

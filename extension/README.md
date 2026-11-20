@@ -12,12 +12,12 @@ MV3 零构建扩展，改 JS/CSS/HTML 直接生效。三个显示位置：
 
 | 位置 | 内容 | 实现方式 |
 |------|------|----------|
-| 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com（host_permissions 免 CORS；Cookie/Origin/Referer 由 background 的 DNR 注入）；team_id / user_id 从 cookie 自动推导，通常只需填 user_email；10 分钟缓存 + 403 自愈重试 |
+| 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com（host_permissions 免 CORS；Cookie/Origin/Referer 由 background 的 DNR 注入）；team_id / user_id 从 cookie 自动推导，通常只需填 user_email；图表与「请求/Tokens/30天费用」是**最近 30 天**，芯片区最前面另有「**本月消耗**」= `get-monthly-billing-cycle` 账期内事件的 `chargedCents` 合计（Cursor 按 UTC 零点切账期；取不到就显示「—」）；事件超过单页 1000 条时按 `totalUsageEventsCount` 翻页；10 分钟缓存 + 403 自愈重试 |
 | 新标签页卡片 | 服务器磁盘 | Native Messaging → Go 宿主按需 SSH 采集（df + du）；宿主流式上报进度，采集由 background 持有，关页面后继续；24h 内不重复查询 |
-| 新标签页卡片 | Release Matrix 状态 | 经 background 调 cygnus 的 DataTables 取数接口（Cookie/Origin/Referer 由 DNR 规则 5 注入 —— Chrome 对跨源 POST 自动加的 `Origin: chrome-extension://<id>` 必须覆盖，否则站点 403；`X-CSRFToken` 取 `csrftoken` cookie），表格列 **region / version / PBF / NGX / QA-NGX**（状态色：已发布·已验证·成功=绿，进行中=蓝，等待=灰，取消·失败=红，缺组件=—），行 title 带完整行名与原始英文状态；`version` 在设置页配置（`releaseMatrixVersion`，默认 `26q3`，可逗号分隔多版本），`region` 固定 `hkm,isc,sea`；5 分钟缓存 + ↻ 强刷 |
+| 新标签页卡片 | Release Matrix 状态 | 经 background 调 cygnus 的 DataTables 取数接口（Cookie/Origin/Referer 由 DNR 规则 5 注入 —— Chrome 对跨源 POST 自动加的 `Origin: chrome-extension://<id>` 必须覆盖，否则站点 403；`X-CSRFToken` 取 `csrftoken` cookie），表格列 `region / version / <环节…>`（状态色：已发布·已验证·成功=绿，进行中=蓝，等待=灰，取消·失败=红，缺组件=—），行 title 带完整行名与原始英文状态；**三个参数都可在设置页配（逗号分隔）**：`releaseMatrixVersion`（默认 `26q3`）、`releaseMatrixRegion`（默认 `hkm,isc,sea`）、`releaseMatrixStages`（默认 `PBF,NGX,QA-NGX`，决定表格列）；**卡头上的 version 点一下就地编辑**，Enter/失焦保存并自动刷新，Esc 取消；5 分钟缓存 + ↻ 强刷 |
 | DeepSeek 会话页 | 持仓浮层 | **默认收成悬浮球** `[● 持仓 \| ⧉ \| ⌄]`：圆点=状态（绿在带内 / 橙出带 / 红行情失败）；**点「持仓」= 直接转附件**（成功留在球里，没进附件通道就自动展开卡片）；`⧉` 复制、`⌄` 展开明细；整块可拖动。卡片里：持仓明细、合计、四类占比、出带信号 + 三个动作（**复制** / **填入** / **转附件**）。份额/成本手工录入，现价经 background 从**腾讯+新浪双源**拉取互验（GBK 解码）；**配色跟随 DeepSeek 自己的浅色/深色** |
-| 安居客地图找房页 | 户型浮层 | 气泡（`div.mark.mark-point`）下方挂「**详情**」按钮（**默认不回显**地图接口自带的那 3 条）。点开 Shadow DOM 面板会**自动**调 `LoudongHuxing` 取全部户型，表格只列 **户型/面积/总价** 三列 + 复制 + 去详情页；加载成功后按钮文字就地刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要（`|` 分隔，最多 `BADGE_MAX_ITEMS=4` 条，超出 `…+N`；完整列表见 `title` 与面板）。失败时给「重试」按钮并保留地图接口自带的前几条兜底 |
-| 设置页 | 配置 | Cursor 标识、Matrix version、持仓、SSH 服务器；下载配置模板 / 导入 |
+| 安居客地图找房页 | 户型浮层 + 贝壳比价 | 气泡（`div.mark.mark-point`）下方挂「**详情**」按钮（**默认不回显**地图接口自带的那 3 条）。点开 Shadow DOM 面板会**自动**调 `LoudongHuxing` 取全部户型，表格只列 **户型/面积/总价** 三列 + 复制 + 去详情页；面板里两个列表**最多显示 5 行**（超出在列表内滚动、表头吸顶），面板下方放不下时会自动翻到气泡上方；面板下半部是**贝壳二手房**（第三方信息源：`m.ke.com` sug 找小区 → 小区在售页取前 10 条，列 户型/面积/总价/单价 + 标签，并给出「贝壳挂牌中位 vs 安居客小区均价」）；加载成功后按钮文字就地刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要（`|` 分隔，最多 `BADGE_MAX_ITEMS=4` 条，超出 `…+N`；完整列表见 `title` 与面板）。失败时给「重试」按钮并保留地图接口自带的前几条兜底 |
+| 设置页 | 配置 | 分块默认折叠（点标题展开）；Cursor 标识、Matrix version/region/环节、持仓、SSH 服务器；下载配置模板 / 导入 |
 
 ## 安装
 
@@ -39,7 +39,7 @@ extension/
 ├── background.js      # 图标点击开设置页 + DNR 头注入 + SSH 采集持有者 + 行情取价代理
 ├── theme.css          # 设计令牌与基础控件（亮/暗跟随系统，贴近浏览器原生观感）
 ├── newtab.html/css/js # 新标签页悬浮仪表盘（三张卡片：拖动/折叠/位置记忆；图表配色取自 CSS 变量）
-├── options.html/css   # 设置页（浏览器设置页风格：分节卡片 + 左标签右控件 + 单行字段网格）
+├── options.html/css   # 设置页（浏览器设置页风格：可折叠分节卡片 + 左标签右控件 + 单行字段网格）
 ├── deepseek-overlay.js# content script：DeepSeek 会话页持仓浮层（只读、复制快照）
 ├── anjuke-overlay.js  # content script：安居客地图找房气泡户型浮层（标签 + 面板 + 调接口补齐）
 ├── yaml.js            # 极简 YAML 子集解析器（「导入配置」用）

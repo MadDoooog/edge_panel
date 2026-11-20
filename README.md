@@ -16,12 +16,12 @@ Edge / Chrome **浏览器扩展**（MV3，零构建）：把个人仪表盘做�
 
 | 位置 | 内容 | 实现方式 |
 |------|------|----------|
-| 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com；team_id / user_id 从 cookie 自动推导，设置里填 user_email 即可；10 分钟缓存 |
+| 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com；team_id / user_id 从 cookie 自动推导，设置里填 user_email 即可；图表按最近 30 天，芯片最前面另显示「**本月消耗**」（Cursor 自己返回的账期）；10 分钟缓存 |
 | 新标签页卡片 | 服务器磁盘 | Native Messaging → Go 宿主 SSH 采集（df + du）；宿主流式上报进度、采集由后台持有；24h 内不重复查询 |
 | 新标签页卡片 | Release Matrix 状态 | 直连 cygnus 的 DataTables 取数接口（`POST /release_matrix/releases/index`，Cookie/Referer 由 background 的 DNR 注入、`X-CSRFToken` 取 `csrftoken` cookie），每行按 **region - version - PBF - NGX - QA-NGX** 展示；`version` 参数在设置页配置（默认 `26q3`，多个用英文逗号分隔，如 `26m10w2,26m10w1`）；5 分钟缓存 |
 | DeepSeek 会话页 | 持仓浮层 | 仅在设置为指定会话 id 的会话页显示；行情经后台代理（腾讯+新浪双源互验）、算术与快照文本在本地 |
-| 安居客地图找房页 | 户型浮层 | 地图气泡下方挂「**详情**」按钮，点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价**），按钮文字随即刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要；取数参数由 background 用 `webRequest` **观察页面自己调的** `mapNewlist` 请求取得，再由 background 代取纯 JSON 推回浮层 |
-| 设置页 | 配置 | 点工具栏图标打开；Cursor 标识、Matrix version、持仓、SSH 服务器 |
+| 安居客地图找房页 | 户型浮层 + 贝壳比价 | 地图气泡下方挂「**详情**」按钮，点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价**），面板下半部再叠一层**第三方信息源** —— 贝壳 `m.ke.com`：按小区名搜到贝壳小区后取该小区在售二手房前 10 条（户型/面积/总价/单价/标签），并给出「贝壳挂牌中位 vs 安居客小区均价」；按钮文字随即刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要；取数参数由 background 用 `webRequest` **观察页面自己调的** `mapNewlist` 请求取得，再由 background 代取纯 JSON 推回浮层 |
+| 设置页 | 配置 | 点工具栏图标打开；分块默认折叠，点标题展开。Cursor 标识、Matrix version/region/环节、持仓、SSH 服务器 |
 
 ## 安装
 
@@ -68,7 +68,7 @@ edge-panel/
 │   ├── manifest.json       # 清单：newtab 覆盖 + content_scripts + host_permissions
 │   ├── background.js       # 图标点击开设置页 + DNR 头注入 + SSH 采集持有者 + 行情取价代理
 │   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（Cursor / 磁盘 / Matrix 三张卡片）
-│   ├── options.html/js     # 设置页（cursor、Matrix version、持仓、SSH；下载模板/导入）
+│   ├── options.html/js     # 设置页（可折叠分块：cursor、Matrix、持仓、SSH；下载模板/导入）
 │   ├── deepseek-overlay.js # content script：DeepSeek 会话页持仓浮层（只读 + 复制快照）
 │   ├── anjuke-overlay.js   # content script：安居客地图找房气泡户型浮层（标签 + 面板 + 调接口补齐）
 │   ├── yaml.js             # 极简 YAML 子集解析器（「导入配置」用）
@@ -86,14 +86,15 @@ edge-panel/
 
 - 需 Chrome / Edge **101+**（MV3 + 可构造样式表）。
 - **外观跟随浏览器主题**：亮/暗由 `prefers-color-scheme` 自动切换，取色贴近浏览器原生界面（`extension/theme.css`）；Cursor 图表配色也跟着主题走。
-- **设置页只有一个「保存」按钮**，一次写入 Cursor / Matrix / SSH（`storage.sync`）与持仓（`storage.local`）；保存后回读存储显示「实际存进去了什么」。
+- **设置页只有一个「保存」按钮**，一次写入 Cursor / Matrix（version/region/环节）/ SSH（`storage.sync`）与持仓（`storage.local`）；保存后回读存储显示「实际存进去了什么」。各分块默认折叠，点标题栏展开。
 - **新标签页被本扩展接管**（`chrome_url_overrides.newtab`）—— 这是让卡片"浮在空白页上"的唯一稳妥做法：扩展无法向 `about:blank` 注入脚本。想恢复默认新标签页就在 `edge://extensions` 里停用本扩展。
 - **侧边栏已移除**（不再需要 Side Panel API）：三张卡片在新标签页，持仓在 DeepSeek 页，设置页点图标打开。
 - 卡片位置/折叠状态存 `chrome.storage.local`（`newtabCards`）；持仓配置同样存 local（含金额，**不**随浏览器账号上云）；Cursor / Matrix / SSH 配置仍在 `chrome.storage.sync`（Matrix 取数结果缓存 `matrixReleases` 在 local，5 分钟）。
-- **Release Matrix 卡片**取数在 background：`POST https://cygnus.telenav.com/release_matrix/releases/index` 是 Django 的 DataTables serverSide 接口，**必须带** `Referer`（HTTPS CSRF 校验，缺了直接 403）、Cookie（SameSite=Lax，扩展发的跨站请求带不上 → DNR 注入）、`Origin`（Chrome 自动加的 `chrome-extension://<id>` 会被站点判 403，DNR 覆盖回站点 origin）与 `X-CSRFToken`（值就是 `csrftoken` cookie 原文，Django 同时接受 32 位未掩码 secret）；三者都来自**同一次** `chrome.cookies` 读取，避免 cookie 轮换导致 403。`region` 固定 `hkm,isc,sea`。
+- **Release Matrix 卡片**取数在 background：`POST https://cygnus.telenav.com/release_matrix/releases/index` 是 Django 的 DataTables serverSide 接口，**必须带** `Referer`（HTTPS CSRF 校验，缺了直接 403）、Cookie（SameSite=Lax，扩展发的跨站请求带不上 → DNR 注入）、`Origin`（Chrome 自动加的 `chrome-extension://<id>` 会被站点判 403，DNR 覆盖回站点 origin）与 `X-CSRFToken`（值就是 `csrftoken` cookie 原文，Django 同时接受 32 位未掩码 secret）；三者都来自**同一次** `chrome.cookies` 读取，避免 cookie 轮换导致 403。`version` / `region` / 环节（表格列，如 `PBF,NGX,QA-NGX`）都在设置页配，逗号分隔；`version` 还能在卡片头上直接点改，改完自动刷新。
 - **服务器磁盘**由扩展后台（service worker）经 `connectNative` 发起采集，宿主流式上报进度（逐服务器 + 每 10s 心跳保活），因此**关掉新标签页采集仍继续**；进度持久化在 `chrome.storage.local`，重新打开时先显示「正在采集到 xx」。
 - 扩展页 `fetch` 无法设置 Cookie / Origin / Referer 等 forbidden headers，统一由 [background.js](extension/background.js) 的 `declarativeNetRequest` 规则注入（cursor cookie 每次打开新标签页时从 `chrome.cookies` 刷新；新浪行情强制要求 Referer）。**content script 的 fetch 受页面源 CORS 约束**，所以持仓浮层的行情一律经 background 代理。
 - **安居客地图找房浮层**（`anjuke-overlay.js`）：气泡是纯 DOM（`div.mark.mark-point`），但**地图平移时会回收复用这些节点**，所以重扫靠「文本比对 + rAF 节流」做幂等。取数参数不是猜的 —— background 用 `webRequest`（MV3 只能观察、不能拦截）**看页面自己发的那条请求**，抄下 bbox/zoom/筛选后再由 background 取纯 JSON（该接口不返回 CORS 头，content script 自己 fetch 会被页面源 CORS 拦）。
+- **安居客气泡里叠了第三方信息源（贝壳）**：安居客只给楼盘，贝壳给同一小区的**在售二手房挂牌价**，两者拼在一个面板里才能比价。取数两段：贝壳 sug 联想接口（**不需要登录**，按 `城市` 路径段限定，城市取自安居客主机首段 `xa.fang.anjuke.com` → `xa`）找到小区 → 小区二手房页（**必须带登录 cookie**，否则 302 到 `hip.ke.com` 风控验证页，或 200 但房源列表为空）。房源在 HTML 的 `window.__PRELOADED_STATE__` 里（服务端预加载，不用跑 JS）。**两个坑**：① 小区页路径 `/<city>/ershoufang/c<id>/` 城市段夹在中间，DNR 的 `urlFilter` 是连续匹配、写 `||m.ke.com/ershoufang/c` 永远匹配不上（表现为 cookie 注不进去 → 一律风控），必须用 `regexFilter`；② 该站风控**拒绝没有 User-Agent 的请求**，浏览器自带所以线上无碍，但离线用 node/curl 复现时必须补 UA，否则会得出假的「被风控」结论。风控敏感，所以只在点开气泡面板时按小区取一次，缓存 6 小时，连续失败 2 次自动熔断改手动。
 - 安居客全量户型走专用接口 `GET {origin}/aifang/web/ajax/LoudongHuxing/?loupan_id=<id>`（与地图页**同源**、需 `x-requested-with: XMLHttpRequest`）—— 地图接口自带的 `house_types` **服务端写死最多 3 条**。响应结构未公开，解析器**不依赖字段名**（递归找「带房型串」的对象），解析不出会把原始响应打到 console；兜底顺序：接口 → 详情页 HTML 文本特征 → 同源 iframe；详情页若前端渲染拿不到，用**同源 iframe** 渲染后读 `contentDocument` 兜底（该站 CSP `frame-ancestors` 允许 `*.anjuke.com`）。户型提取**不依赖 class 名**，按「房型+面积+总价」文本特征聚类，页面改版不易失效。参考总价 = 面积 × 均价（接口不给总价，显示时带 `~`）。
 - 历史：项目最初是 FastAPI 后端 + 新标签页前端的 Python 服务，后迁移为侧边栏扩展；现已回到新标签页形态，并移除了 Logshed 探测与知乎阅读流。
 

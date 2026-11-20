@@ -14,8 +14,9 @@
       <a id="back-link" class="btn-link" href="newtab.html">返回新标签页</a>
     </header>
 
-    <section class="card">
-      <h2 class="card-title">Cursor 用量</h2>
+    <!-- 分块默认折叠：点标题栏展开（原生 <details>，无需 JS） -->
+    <details class="card">
+      <summary class="card-title">Cursor 用量</summary>
       <div class="row">
         <label for="cursor-team-id">team_id</label>
         <input id="cursor-team-id" class="w-md" type="text" spellcheck="false" />
@@ -29,22 +30,32 @@
         <input id="cursor-user-email" class="w-md" type="email" spellcheck="false" />
       </div>
       <p class="note">Cookie 自动读取；team_id / user_id 留空则从 cookie 推导。</p>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 class="card-title">Release Matrix</h2>
+    <details class="card">
+      <summary class="card-title">Release Matrix</summary>
       <div class="row">
         <label for="release-matrix-version">version</label>
         <input id="release-matrix-version" class="w-sm" type="text" spellcheck="false" placeholder="26q3" />
       </div>
+      <div class="row">
+        <label for="release-matrix-region">region</label>
+        <input id="release-matrix-region" class="w-md" type="text" spellcheck="false" placeholder="hkm,isc,sea" />
+      </div>
+      <div class="row">
+        <label for="release-matrix-stages">环节</label>
+        <input id="release-matrix-stages" class="w-md" type="text" spellcheck="false" placeholder="PBF,NGX,QA-NGX" />
+      </div>
       <p class="note">
-        新标签页 Matrix 卡片取数用的 version 参数（取数结果按 region-version-PBF-NGX-QA-NGX 展示），
-        同时用于「打开 Release Matrix」链接。多个版本用英文逗号分隔，如 26m10w2,26m10w1。
+        Matrix 卡片的三个取数参数，都用英文逗号分隔：<strong>version</strong>（可多个，如 26m10w2,26m10w1）、
+        <strong>region</strong>（如 hkm,isc,sea）、<strong>环节</strong>（站点 nodes 的键名，如 PBF,NGX,QA-NGX，
+        决定表格列出哪几列，大小写不敏感）。version 同时用于「打开 Release Matrix」链接；
+        面板上点卡头的 version 也能直接改，改完自动刷新。
       </p>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 class="card-title">持仓（DeepSeek 会话浮层）</h2>
+    <details class="card">
+      <summary class="card-title">持仓（DeepSeek 会话浮层）</summary>
       <div class="row">
         <label for="fin-session-ids">会话 id</label>
         <textarea id="fin-session-ids" class="w-lg" rows="2" spellcheck="false" placeholder="https://chat.deepseek.com/a/chat/s/…"></textarea>
@@ -96,10 +107,10 @@
         <span>其他会话页显示「未匹配」角标</span>
       </label>
       <p class="note" id="fin-stored">读取中…</p>
-    </section>
+    </details>
 
-    <section class="card">
-      <h2 class="card-title">SSH 服务器</h2>
+    <details class="card">
+      <summary class="card-title">SSH 服务器</summary>
       <div class="row">
         <label for="ssh-username">默认用户名</label>
         <input id="ssh-username" class="w-md" type="text" spellcheck="false" />
@@ -132,7 +143,7 @@
         <button type="button" id="download-template-btn" class="btn-outline">下载配置模板</button>
         <button type="button" id="import-config-btn" class="btn-outline">导入配置</button>
       </div>
-    </section>
+    </details>
 
     <section class="card">
       <div class="actions">

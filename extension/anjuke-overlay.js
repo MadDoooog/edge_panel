@@ -65,6 +65,17 @@
 
   const INDEX = new Map(); // 归一化楼盘名 -> 接口行
   const DETAIL_CACHE = new Map(); // loupan_id -> { status, list, via, note }
+  // 贝壳二手房（第三方信息源）：按小区名缓存；连接失败熔断后只允许手点
+  const BEIKE_CACHE = new Map(); // name -> { status, data, note }
+  // 贝壳 sug 的 <city> 路径段起城市限定作用（xx → 0 条），安居客地图页主机首段
+  // 就是城市拼音（xa.fang.anjuke.com → xa）；但 www/m/api 这类前缀不是城市，
+  // 传过去只会 0 条，所以拦掉交给 background 兜底。
+  const CITY_SLUG = (() => {
+    const head = (location.hostname.split(".")[0] || "").toLowerCase().replace(/[^a-z]/g, "");
+    return /^(www|m|api|map|www2|fang)$/.test(head) || head.length < 2 ? "" : head;
+  })();
+  const beikeStatus = { fails: 0, blockedUntil: 0, lastError: "" }; // 最近一次响应里的熔断状态
+  const BEIKE_STALL_MS = 20000; // 超时这么久还没结果 -> 面板别再显示「查询中」
   const badgeOfId = new Map(); // loupan_id -> badge（详情页回来后刷新）
   const stats = {
     marksSeen: 0,
@@ -144,6 +155,11 @@
     return hs
       .map((h) => `${roomCode(h.alias)}-${fmtArea(h.area)}平-${fmtTotal(h.area, price) || "—"}`)
       .join("  ");
+  }
+
+  /** 千分位数字（贝壳单价/均价展示用）。 */
+  function fmtNum(n) {
+    return Number.isFinite(n) ? Number(n).toLocaleString("en-US") : "";
   }
 
   const escHtml = (s) =>
@@ -805,7 +821,17 @@
         font: 13px/1.6 -apple-system, "Segoe UI", sans-serif; color: #1a1a1a; background: #fff;
         border: 1px solid #d9d9d9; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18);
         padding: 10px 12px; width: max-content; max-width: 580px;
+        /* 整体兜底：窗口太矮时面板自己滚，配合 JS 的「下方放不下就翻到气泡上方」 */
+        max-height: calc(100vh - 48px); overflow: auto; overscroll-behavior: contain;
       }
+      /* 列表最多显示 5 行，超出在列表内滚动（表头吸顶）。--row-h 是单行高度，
+         --head-h 给表头留位，这样"5 个"是实数不是估算。 */
+      .tbl { --row-h: 27px; --head-h: 26px; max-height: calc(5 * var(--row-h) + var(--head-h)); overflow-y: auto; overscroll-behavior: contain; }
+      .tbl table { width: 100%; }
+      .tbl thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+      .tbl::-webkit-scrollbar { width: 8px; }
+      .tbl::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 4px; }
+      .tbl::-webkit-scrollbar-track { background: transparent; }
       h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
       .meta { color: #888; font-size: 12px; margin-bottom: 8px; }
       .meta b { color: #e4393c; font-size: 13px; }
@@ -816,6 +842,13 @@
       td.num { text-align: right; font-variant-numeric: tabular-nums; }
       td.dim { color: #999; }
       .note { color: #c60; font-size: 12px; margin-top: 6px; max-width: 520px; white-space: normal; }
+      .bx { margin-top: 9px; padding-top: 8px; border-top: 1px dashed #e0e0e0; }
+      .bx h5 { margin: 0 0 5px; font-size: 12.5px; font-weight: 600; color: #333; }
+      .bx h5 b { font-weight: 400; color: #888; margin-left: 6px; font-size: 12px; }
+      .bx .bxt td, .bx .bxt th { padding: 2px 8px 2px 0; font-size: 12px; }
+      .bx .tbl { --row-h: 24px; --head-h: 20px; }
+      .tg { color: #999; margin-left: 6px; font-size: 11.5px; }
+      .bx .note { margin-top: 5px; }
       a { color: #0066cc; text-decoration: none; }
       .foot { margin-top: 8px; display: flex; gap: 10px; align-items: center; font-size: 12px; flex-wrap: wrap; }
       button {
@@ -825,6 +858,13 @@
       button[disabled] { opacity: .55; cursor: default; }
     `);
     return sheet;
+  }
+
+  let fitBound = false;
+  function bindFit() {
+    if (fitBound) return;
+    fitBound = true;
+    window.addEventListener("resize", () => fitPanel());
   }
 
   function closePanel() {
@@ -859,13 +899,27 @@
       <div class="p">
         <h4 id="t"></h4>
         <div class="meta" id="m"></div>
-        <table>
-          <thead><tr><th>户型</th><th>面积</th><th>总价</th></tr></thead>
-          <tbody id="b"></tbody>
-        </table>
+        <div class="tbl">
+          <table>
+            <thead><tr><th>户型</th><th>面积</th><th>总价</th></tr></thead>
+            <tbody id="b"></tbody>
+          </table>
+        </div>
         <div class="note" id="n"></div>
+        <div class="bx">
+          <h5>贝壳二手房<b id="bxm"></b></h5>
+          <div class="tbl">
+            <table class="bxt">
+              <thead><tr><th>户型</th><th>面积</th><th>总价</th><th>单价</th></tr></thead>
+              <tbody id="bxb"></tbody>
+            </table>
+          </div>
+          <div class="note" id="bxn"></div>
+        </div>
         <div class="foot">
           <a id="lk" target="_blank" rel="noopener">去详情页 →</a>
+          <a id="bxl" target="_blank" rel="noopener">去贝壳 →</a>
+          <button id="bxr">查贝壳</button>
           <button id="rt">重试</button>
           <button id="cp">复制</button>
         </div>
@@ -892,6 +946,15 @@
       refreshPanel();
     });
     root.getElementById("lk").addEventListener("click", (e) => e.stopPropagation());
+    root.getElementById("bxl").addEventListener("click", (e) => e.stopPropagation());
+    root.getElementById("bxr").addEventListener("click", (e) => {
+      e.stopPropagation();
+      log("用户手点「查贝壳」:", badge.__epName);
+      beikeOf(badge, true);
+      refreshPanel();
+    });
+
+    bindFit();
 
     mk.appendChild(host);
     panelHost = host;
@@ -901,10 +964,119 @@
     log("面板展开:", badge.__epName, badge.__epRow ? `(id=${badge.__epRow.loupan_id})` : "（无接口数据）");
 
     // 打开面板就自动取全部户型（地图接口自带的最多 3 条，不够）；失败过就再试一次
+    // 贝壳：每个小区只自动查一次（background 侧另有 6h 缓存 + 失败冷却，
+    // 冷却期内 background 会立刻回一个带原因的失败，不会产生网络请求）
+    if (!BEIKE_CACHE.get(badge.__epName)) {
+      log("面板展开 -> 自动查贝壳:", badge.__epName, `(城市 ${CITY_SLUG})`);
+      beikeOf(badge);
+    }
+
     const pre = badge.__epRow ? DETAIL_CACHE.get(badge.__epRow.loupan_id) : null;
     if (badge.__epRow && (!pre || pre.status === "fail")) {
       log("面板展开 -> 自动加载全部户型:", badge.__epName);
       detailOf(badge.__epRow);
+    }
+  }
+
+  /**
+   * 贝壳二手房（第三方信息源）：小区名 → sug 找到贝壳小区 → 该小区在售二手房。
+   * 全程走 background（content script fetch 会被页面源 CORS 拦，且需要
+   * 浏览器登录态 cookie，由 background 的 DNR 规则 6 注入）。
+   * 风控敏感：同一小区只自动取一次（background 侧还有 6h 缓存），
+   * 连续失败后熔断，改成用户手点「查贝壳」。
+   */
+  function beikeOf(badge, force) {
+    const name = badge.__epName;
+    if (!name) return null;
+    const prev = BEIKE_CACHE.get(name);
+    if (prev && prev.status === "loading") return prev;
+    if (prev && prev.status !== "fail" && !force) return prev;
+
+    const rec = { status: "loading", data: null, note: "", startedAt: Date.now() };
+    BEIKE_CACHE.set(name, rec);
+    if (panelBadge === badge) refreshPanel();
+
+    (async () => {
+      const t0 = Date.now();
+      let res = null;
+      try {
+        res = await askBackground("beike-community", { name, city: CITY_SLUG, force: force === true });
+      } catch (e) {
+        warn("贝壳取数抛异常:", (e && e.message) || e);
+      }
+      if (!res) {
+        rec.status = "fail";
+        rec.note = "后台无响应";
+      } else if (res.ok && res.miss) {
+        rec.status = "miss";
+        rec.note = `贝壳没搜到「${name}」（城市限定 ${res.city || CITY_SLUG}）`;
+      } else if (!res.ok) {
+        rec.status = "fail";
+        rec.note = res.error || "取数失败";
+        beikeStatus.fails = res.fails || 0;
+        beikeStatus.blockedUntil = res.blockedUntil || 0;
+        beikeStatus.lastError = res.lastError || "";
+      } else {
+        rec.status = "ok";
+        rec.data = res;
+      }
+      log(
+        `贝壳取数「${name}」（城市 ${CITY_SLUG || "默认 xa"}，${Date.now() - t0}ms）→`,
+        rec.status,
+        rec.data ? `${rec.data.listings.length} 条/在售 ${rec.data.totalCount} 套` : rec.note
+      );
+      if (panelBadge === badge) refreshPanel();
+    })();
+    return rec;
+  }
+
+  function beikeRowsHtml(rec, anjuPrice) {
+    const d = rec.data;
+    if (!d || !d.listings.length) return `<tr><td colspan="4" class="dim">—</td></tr>`;
+    return d.listings
+      .map((l) => {
+        const tags = l.tags.slice(0, 3).join("·");
+        const price = escHtml(l.total || "");
+        return (
+          `<tr><td>${escHtml(l.rooms || "")}${l.hot ? '<span class="tg">必看好房</span>' : ""}` +
+          `${tags ? `<span class="tg">${escHtml(tags)}</span>` : ""}</td>` +
+          `<td class="num">${escHtml(l.area || "")}</td>` +
+          `<td class="num">${l.url ? `<a href="${escHtml(l.url)}" target="_blank" rel="noopener">${price}</a>` : price}</td>` +
+          `<td class="num">${escHtml(l.unit || "")}</td></tr>`
+        );
+      })
+      .join("");
+  }
+
+  /** 贝壳单价区间 vs 安居客小区均价 —— 这才是把它塞进气泡的意义。 */
+  function beikeNoteText(rec, anjuPrice) {
+    const d = rec.data;
+    if (rec.status === "loading") return "正在查贝壳在售二手房…";
+    if (rec.status === "fail" || rec.status === "miss") return rec.note;
+    const seg = d.unitMedian ? `单价 ${fmtNum(d.unitMin)}–${fmtNum(d.unitMax)} 元/㎡（中位 ${fmtNum(d.unitMedian)}）` : "";
+    let cmp = "";
+    if (d.unitMedian && anjuPrice) {
+      const diff = Math.round(((d.unitMedian - anjuPrice) / anjuPrice) * 100);
+      cmp = ` · 安居客小区均价 ${fmtNum(anjuPrice)} → 贝壳挂牌中位${diff === 0 ? "持平" : diff > 0 ? "高 " + diff + "%" : "低 " + -diff + "%"}`;
+    }
+    const more = d.hasMore ? `，另有更多（本页 ${d.listings.length} 条）` : "";
+    return `${seg}${cmp}${more}${d.exact === false ? ` · 匹配到「${d.name}」` : ""}`;
+  }
+
+  /** 面板下方放不下就翻到气泡上方；每次刷新后都重算（数据到达会改变高度）。 */
+  function fitPanel() {
+    if (!panelHost || !panelHost.isConnected) return;
+    const st = panelHost.style;
+    st.top = "100%";
+    st.bottom = "auto";
+    st.marginTop = "26px";
+    st.marginBottom = "0";
+    const r = panelHost.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 8 && r.height <= window.innerHeight - 48) {
+      st.top = "auto";
+      st.bottom = "100%";
+      st.marginTop = "0";
+      st.marginBottom = "26px";
     }
   }
 
@@ -971,13 +1143,77 @@
       lk.style.display = "none";
     }
 
+    // ── 贝壳二手房（第三方信息源）─────────────────────────
+    // 关键：**没有记录 ≠ 查询中**。曾经把「无记录」也渲染成 loading，于是
+    // 自动取数被熔断（或压根没触发）时面板会永远停在「查询中」，看起来像
+    // 请求没回来实则一个请求都没发（用户实测遇到的就是这个）。
+    const bxm = root.getElementById("bxm");
+    const bxn = root.getElementById("bxn");
+    const bxl = root.getElementById("bxl");
+    const bxr = root.getElementById("bxr");
+    try {
+      let rec = BEIKE_CACHE.get(name);
+      if (!badge.__epName) rec = { status: "miss", data: null, note: "这个气泡没解析出楼盘名，没法查贝壳" };
+      else if (!rec) rec = { status: "idle", data: null, note: "" };
+
+      // 兜底：loading 太久（或 SW 被回收导致回调没回来）就别再显示「查询中」
+      if (rec.status === "loading" && rec.startedAt && Date.now() - rec.startedAt > BEIKE_STALL_MS) {
+        rec = { status: "stall", data: null, note: `请求已超过 ${Math.round((Date.now() - rec.startedAt) / 1000)}s 未返回 —— 点「查贝壳」重试（Console 里看 [beike] / [ajk-overlay] 日志）` };
+      }
+
+      root.getElementById("bxb").innerHTML =
+        rec.status === "idle" || rec.status === "stall" ? `<tr><td colspan="4" class="dim">—</td></tr>` : beikeRowsHtml(rec, price);
+
+      if (rec.status === "ok" && rec.data) {
+        bxm.textContent = `${rec.data.totalCount} 套在售 · ${rec.data.region || ""}${rec.data.cached ? " · 缓存" : ""}`;
+      } else if (rec.status === "loading") {
+        bxm.textContent = "查询中…";
+      } else if (rec.status === "idle") {
+        bxm.textContent = "未查询";
+      } else if (rec.status === "stall") {
+        bxm.textContent = "查询超时";
+      } else {
+        bxm.textContent = rec.status === "miss" ? "未匹配到小区" : "取数失败";
+      }
+
+      bxn.textContent =
+        rec.status === "idle"
+          ? "点「查贝壳」按小区名去贝壳查在售二手房（每个小区只自动查一次）"
+          : beikeNoteText(rec, price);
+      bxn.style.color = rec.status === "ok" || rec.status === "loading" || rec.status === "idle" ? "#888" : "#c60";
+
+      if (rec.status === "ok" && rec.data && rec.data.url) {
+        bxl.href = rec.data.url;
+        bxl.style.display = "";
+      } else {
+        bxl.style.display = "none";
+      }
+      bxr.style.display = rec.status === "loading" ? "none" : "";
+    } catch (e) {
+      // 渲染层任何异常都不能让面板停在半渲染状态
+      err("贝壳区块渲染失败:", (e && e.message) || e);
+      bxm.textContent = "贝壳区块出错";
+      bxn.textContent = `渲染失败：${(e && e.message) || e}`;
+      bxn.style.color = "#c60";
+      bxl.style.display = "none";
+      bxr.style.display = "";
+    }
+
+    const bx = BEIKE_CACHE.get(name);
+    const bxPart =
+      bx && bx.status === "ok" && bx.data && bx.data.unitMedian
+        ? ` | 贝壳在售 ${bx.data.totalCount} 套 单价 ${fmtNum(bx.data.unitMin)}-${fmtNum(bx.data.unitMax)}`
+        : "";
     badge.__epCopyText =
       `${name} | ` +
       (list.length
         ? list
             .map((h) => `${roomCode(h.alias)}-${fmtArea(h.area)}平-${fmtTotalCell(h, price)}`)
             .join("|")
-        : "无数据");
+        : "无数据") +
+      bxPart;
+
+    fitPanel();
   }
 
   /* ── 启动 ─────────────────────────────────────────────── */
@@ -1026,6 +1262,21 @@
   window.__edgePanelAnjuke = {
     INDEX,
     DETAIL_CACHE,
+    // 贝壳取数状态：auto=false 表示连续失败已熔断（面板会显示「已暂停自动取数」）
+    beike: () => ({
+      city: CITY_SLUG,
+      fails: beikeStatus.fails,
+      blockedSeconds: beikeStatus.blockedUntil ? Math.max(0, Math.round((beikeStatus.blockedUntil - Date.now()) / 1000)) : 0,
+      lastError: beikeStatus.lastError,
+      cache: [...BEIKE_CACHE.entries()].map(([k, v]) => ({ name: k, status: v.status, note: v.note, rows: v.data ? v.data.listings.length : 0 })),
+    }),
+    beikeRetry: (name) => {
+      const b = [...document.querySelectorAll("." + BADGE_CLS)].find((x) => x.__epName === name);
+      if (!b) return "没找到这个气泡标签";
+      BEIKE_CACHE.delete(name);
+      beikeOf(b, true);
+      return "已重新取数：" + name;
+    },
     stats,
     sync: syncAll,
     ingestRows: (rows, params) => ingestRows(rows, params, "manual"),

@@ -45,18 +45,18 @@
       </div>
     </section>
 
-    <!-- 3. Release Matrix 状态（region-version-PBF-NGX-QA-NGX） -->
+    <!-- 3. Release Matrix 状态（region-version-<环节…>，三个参数都可在设置页配） -->
     <section class="card" id="card-matrix" data-card="matrix">
       <div class="card-head" title="拖动移动 · 单击折叠">
         <span class="caret" aria-hidden="true"></span>
         <span class="card-title">Matrix</span>
-        <span class="card-meta" id="matrix-version"></span>
+        <button type="button" class="card-meta matrix-version-btn" id="matrix-version" title="点击修改 version（可逗号分隔多个）"></button>
         <button type="button" class="icon-btn" id="matrix-refresh" title="刷新">↻</button>
         <a class="icon-btn" id="matrix-open" href="#" target="_blank" rel="noopener" title="在新标签页打开">↗</a>
       </div>
       <div class="card-body">
         <table class="matrix-table" id="matrix-table" hidden>
-          <thead>
+          <thead id="matrix-head">
             <tr><th>Region</th><th>Version</th><th>PBF</th><th>NGX</th><th>QA-NGX</th></tr>
           </thead>
           <tbody id="matrix-rows"></tbody>

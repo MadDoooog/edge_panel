@@ -3,6 +3,8 @@ const DEFAULTS = {
   cursorUserId: "",
   cursorUserEmail: "",
   releaseMatrixVersion: "26q3",
+  releaseMatrixRegion: "hkm,isc,sea",
+  releaseMatrixStages: "PBF,NGX,QA-NGX",
   sshConfig: { ssh_defaults: { username: "", password: "", key_file: "" }, du_paths: [], targets: [] },
 };
 
@@ -19,6 +21,8 @@ async function loadSettings() {
   document.getElementById("cursor-user-id").value = stored.cursorUserId;
   document.getElementById("cursor-user-email").value = stored.cursorUserEmail;
   document.getElementById("release-matrix-version").value = stored.releaseMatrixVersion;
+  document.getElementById("release-matrix-region").value = stored.releaseMatrixRegion;
+  document.getElementById("release-matrix-stages").value = stored.releaseMatrixStages;
 
   const cfg = stored.sshConfig || {};
   const sd = cfg.ssh_defaults || {};
@@ -103,6 +107,8 @@ document.getElementById("save-btn").addEventListener("click", async () => {
       cursorUserId: document.getElementById("cursor-user-id").value.trim(),
       cursorUserEmail: document.getElementById("cursor-user-email").value.trim(),
       releaseMatrixVersion: document.getElementById("release-matrix-version").value.trim() || DEFAULTS.releaseMatrixVersion,
+      releaseMatrixRegion: document.getElementById("release-matrix-region").value.trim() || DEFAULTS.releaseMatrixRegion,
+      releaseMatrixStages: document.getElementById("release-matrix-stages").value.trim() || DEFAULTS.releaseMatrixStages,
       sshConfig: collectSshConfig(),
     });
     await chrome.storage.local.set({ [FIN_KEY]: fin });
