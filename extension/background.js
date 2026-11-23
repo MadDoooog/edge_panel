@@ -325,6 +325,60 @@ function startMetricsCollection(force = false) {
 }
 
 /* ============================================================
+   蓝牙电量（Native Messaging → Go 宿主）
+   宿主跑在浏览器所在机器上，用 PowerShell 读 Windows 的蓝牙电量
+   （见 native_host/bt_windows.go）；这里只负责「要一次结果」：
+   每次新建一个连接、收一条消息就断开，缓存交给新标签页（60s）。
+   ============================================================ */
+const BLUETOOTH_TIMEOUT_MS = 45 * 1000; // 宿主内部 PowerShell 预算 25s + 启动开销
+
+function fetchBluetoothDevices() {
+  return new Promise((resolve, reject) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+    } catch (err) {
+      reject(new Error(String((err && err.message) || err)));
+      return;
+    }
+
+    let settled = false;
+    let timer = null;
+    const finish = (err, data) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        port.disconnect();
+      } catch (_) {}
+      if (err) reject(err);
+      else resolve(data);
+    };
+
+    timer = setTimeout(
+      () => finish(new Error(`蓝牙查询超时（${BLUETOOTH_TIMEOUT_MS / 1000}s）—— 宿主可能被安全软件拦住了`)),
+      BLUETOOTH_TIMEOUT_MS
+    );
+
+    port.onMessage.addListener((msg) => {
+      if (msg && msg.error) finish(new Error(String(msg.error)));
+      else finish(null, msg || {});
+    });
+
+    port.onDisconnect.addListener(() => {
+      const err = chrome.runtime.lastError && chrome.runtime.lastError.message;
+      finish(new Error(err || "native host 断开 —— 宿主可能没装或需要重装"));
+    });
+
+    try {
+      port.postMessage({ type: "bluetooth" });
+    } catch (err) {
+      finish(new Error(String((err && err.message) || err)));
+    }
+  });
+}
+
+/* ============================================================
    行情取价代理（腾讯 + 新浪双源互验）
    必须放在 background：content script 的 fetch 受「页面源」CORS 约束，
    扩展的 host_permissions 对它不生效，而行情接口不返回 CORS 头 ——
@@ -1105,6 +1159,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "matrix-releases") {
     fetchMatrixReleases(msg.force === true)
       .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+    return true; // 异步响应
+  }
+  if (msg && msg.type === "bluetooth") {
+    fetchBluetoothDevices()
+      .then((data) => sendResponse({ ok: true, ...data }))
       .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
     return true; // 异步响应
   }

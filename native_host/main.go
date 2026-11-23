@@ -1,9 +1,10 @@
-// Command edge-panel-host — Native Messaging 宿主（SSH-only）。
+// Command edge-panel-host — Native Messaging 宿主（SSH 采集 + 蓝牙电量）。
 //
 // 协议：stdin/stdout 各消息为 4 字节小端长度前缀 + UTF-8 JSON（标准 native messaging）。
 // 请求：{"type":"collect","config":{...},"config_path":"..."}
 //       config 为内联采集配置（优先）；config_path 可选，指向磁盘配置文件。
-// 响应：{"last_updated":"...","servers":[...]}，或 {"error":"..."}
+//       {"type":"bluetooth"} 查询本机蓝牙设备电量（仅 Windows，见 bt_windows.go）。
+// 响应：{"last_updated":"...","servers":[...]}、{"devices":[...]}，或 {"error":"..."}
 //
 // 只采集配置中 type: ssh 的目标磁盘占用（df + du），不做本机采集。配置经消息内联
 // 传入（config），或由 config_path 指向的磁盘文件读取。
@@ -42,6 +43,8 @@ func main() {
 		switch req.Type {
 		case "collect":
 			resp = runCollect(req.Config, req.ConfigPath, os.Stdout)
+		case "bluetooth":
+			resp = collectBluetooth()
 		case "ping":
 			resp = map[string]any{"pong": true}
 		default:

@@ -6,12 +6,12 @@
 
 `edge-panel` 是一个 **纯浏览器扩展**（MV3，零构建，改 JS/CSS/HTML 直接生效），把个人仪表盘做成**新标签页上的悬浮卡片**，并在指定的 DeepSeek 会话页显示**持仓浮层**。
 
-- **新标签页**（`chrome_url_overrides.newtab`）：空白页上浮三张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 状态**，可拖动、可折叠、位置记忆
+- **新标签页**（`chrome_url_overrides.newtab`）：空白页上浮四张卡片 —— **Cursor 费用 / 服务器磁盘 / Release Matrix 状态 / 蓝牙电量**，可拖动、可折叠、位置记忆
 - **DeepSeek 会话页**（content script）：**持仓浮层** —— 默认是「持仓」悬浮球，点开是卡片；份额/成本手工录入，现价经 background 从腾讯+新浪双源拉取互验，市值/浮盈/四类占比本地算，「复制快照」或「填入输入框」
 - **安居客地图找房页**（content script）：**户型浮层** —— 地图气泡下挂「**详情**」按钮；点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价** 三列），标签文字随即就地刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 这样的缩略摘要（`|` 分隔，最多 `BADGE_MAX_ITEMS` 条，超出 `…+N`，完整列表在 `title` 与面板里）
 - **点工具栏图标 = 打开设置页**；**没有侧边栏**（Side Panel API 与相关权限已移除）
 - 扩展**直连源站**（Cursor / 行情，免 CORS）；登录态自动读取浏览器 cookie
-- 服务器磁盘（SSH）走 **Native Messaging → Go 宿主**（`native_host/`）按需采集
+- 服务器磁盘（SSH）与 **本机蓝牙设备电量** 走 **Native Messaging → Go 宿主**（`native_host/`）：扩展拿不到本机硬件，只能让宿主去问
 - **无后端服务、无 7×24 后台任务** —— 数据只在新标签页打开期间获取；SSH 采集由 background 持有，关页面也会继续
 
 **历史：** 项目最初是 FastAPI 后端 + 新标签页前端的 Python Web 服务 → 迁移为「侧边栏扩展」→ 现回到新标签页形态，并移除了 Logshed 探测与知乎阅读流（`logshed.js` / `feeds.js` / `sidepanel.*` / `script.js`）。
@@ -25,7 +25,7 @@ edge-panel/
 │   ├── manifest.json       # 清单：newtab 覆盖 + content_scripts + host_permissions + WAR
 │   ├── background.js       # 图标点击开设置页 + declarativeNetRequest 头注入 + SSH 采集持有者 + 行情取价代理
 │   ├── theme.css           # 设计令牌 + 基础控件（亮/暗跟随系统，贴近浏览器原生观感）
-│   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（三张卡片：拖动/折叠/位置持久化）
+│   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（四张卡片：拖动/折叠/位置持久化）
 │   ├── options.html/css    # 设置页（可折叠分块 + 左标签右控件 + 单行字段网格）
 │   ├── deepseek-overlay.js # content script：DeepSeek 会话页持仓浮层（悬浮球 + 卡片；复制/填入输入框）
 │   ├── anjuke-overlay.js   # content script：安居客地图找房气泡户型浮层（标签 + 面板 + 调接口补齐）
@@ -36,7 +36,7 @@ edge-panel/
 │   └── native/             # 打包产物（源仓库不存在；web_accessible_resources）
 │       ├── edge-panel-host.exe            # Go 编译产物（Windows amd64）
 │       └── install-edge-panel-host.{ps1,bat}  # 一键安装脚本
-├── native_host/            # Go Native Messaging 宿主源码（SSH-only）
+├── native_host/            # Go Native Messaging 宿主源码（SSH 采集 + 蓝牙电量）
 │   ├── main.go / config.go / collect_ssh.go / go.mod
 │   └── install-edge-panel-host.{ps1,bat}  # 安装脚本模板（打包时复制进 native/）
 └── config.yaml             # 旧版遗留的磁盘配置（已不再被读取，可删除）
@@ -77,7 +77,7 @@ bash package.sh
 
 ## 扩展模块
 
-- `extension/newtab.js` — 新标签页编排：卡片拖动/折叠/位置持久化（`newtabCards`）+ Cursor 图表（Chart.js，**主口径仍是最近 30 天**；芯片区最前面额外一个「本月消耗」= `get-monthly-billing-cycle` 账期内事件的 `chargedCents` 合计，账期取不到就显示「—」，不影响 30 天曲线）+ 服务器磁盘渲染（采集进度、宿主安装引导）+ Matrix 状态表（渲染 background 取回的 release 列表，列 `region-version-<环节…>`；三个参数都在设置页配：`releaseMatrixVersion` / `releaseMatrixRegion` / `releaseMatrixStages`，均逗号分隔；**卡头上的 version 点一下就地编辑**，Enter/失焦保存到 sync 并自动强制刷新，Esc 取消；↻ 强刷，页面挂着时每 5 分钟对一次）
+- `extension/newtab.js` — 新标签页编排：卡片拖动/折叠/位置持久化（`newtabCards`）+ Cursor 图表（Chart.js，**主口径仍是最近 30 天**；芯片区最前面额外一个「本月消耗」= `get-monthly-billing-cycle` 账期内事件的 `chargedCents` 合计，账期取不到就显示「—」，不影响 30 天曲线）+ 服务器磁盘渲染（采集进度、宿主安装引导）+ 蓝牙电量卡（`{type:"bluetooth"}` 经 background 问宿主，≤20% 红 >20% 绿，60s 缓存 + 页面挂着时 2 分钟轮询，宿主没装时给安装按钮）+ Matrix 状态表（渲染 background 取回的 release 列表，列 `region-version-<环节…>`；三个参数都在设置页配：`releaseMatrixVersion` / `releaseMatrixRegion` / `releaseMatrixStages`，均逗号分隔；**卡头上的 version 点一下就地编辑**，Enter/失焦保存到 sync 并自动强制刷新，Esc 取消；↻ 强刷，页面挂着时每 5 分钟对一次）
 - `extension/deepseek-overlay.js` — content script：持仓浮层。**默认收成「持仓」悬浮球**：`[● 持仓 | ⧉ | ⌄]` —— 圆点=状态（绿在带内/橙出带/红行情失败）；**点圆点+「持仓」= 直接转附件**（成功留在球里，没进附件通道就自动展开卡片让用户换按钮）；`⧉` 复制快照；`⌄` 展开看明细。整块可拖动。卡片三个动作：**复制**、**填入**、**转附件**。
   - **「长文本自动转 .txt 附件」是 DeepSeek 自己的逻辑**（`onPaste` 里：`pastedText.length > pasteTextToFileLimit && canAddFile` → `preventDefault()` + `new File([text], "<首行≤50字>.txt", {type:"text/plain;charset=utf-8"})` + `fileSource:"paste"` 上传）。阈值是**运行时 config，前端 bundle 里没有字面量**，无法静态得知。
   - 因此「填入」= **合成一次真实粘贴**（`new ClipboardEvent("paste",{clipboardData: dt})`）让 DeepSeek 自己判断；`dispatchEvent()` **返回 false 就等于它接管了（已转附件）**，因为它只在转附件那条分支调用 `preventDefault()`。「转附件」= 先走同一条粘贴路径，它没接管再用 **file input 注入**（`new File(...)` → `input.files = dt.files` → 派发 `change`）兜底，确保一定进文件通道。
@@ -85,7 +85,7 @@ bash package.sh
   - 三条通道都用 `attachmentVisible()`（轮询页面里是否出现文件名）与输入框回读来**确认结果**，失败一律退回剪贴板，绝不静默。
   - `window.__edgePanelFinance` 是隔离世界里的调试钩子（页面脚本不可见）：`setTestState(cfg, quotes)` + `buildSnapshot()` 验算术、`deliverToComposer()`/`derivedFileName()` 验投递通道、`matchSession(pathname)` 验挂载判定、`detectPageTheme()` 验主题采样
 - `extension/anjuke-overlay.js` — content script：安居客「地图找房」气泡户型浮层。气泡（`div.mark.mark-point`）下方挂小标签 `2/2/1-95平-92万`（房型/面积/参考总价，取接口自带的 `house_types`）；标签**默认只显示「详情」**（不再回显地图接口那 3 条）；点开 Shadow DOM 面板会**自动**调 `LoudongHuxing` 取全部户型，表格只列 **户型/面积/总价**，加载成功后标签就地刷新成 `|` 分隔的缩略摘要（详情未到/失败时保持「详情」；失败给「重试」按钮，`rec.via` 标明来源是 `api` / `html` / `iframe`）。取数参数由 background 的 `webRequest` 观察页面自己的 `mapNewlist` 请求得到，数据由 background 取纯 JSON 推回（`{type:"ajk-rows"}`）；详情页 HTML 由浮层同源 fetch，失败再走 background 代理（`{type:"ajk-fetch-text"}`）。面板下半部是**贝壳二手房第三方信息源**（`{type:"beike-community"}`，见「关键约束」）：点开面板自动查一次（6h 缓存、失败熔断），显示在售套数、前 10 条（户型/面积/总价/单价/标签）与「贝壳挂牌中位 vs 安居客小区均价」对比，可手点「查贝壳」强刷，也可整行点进贝壳。**面板尺寸**：两个列表都封顶 **5 行**（`.tbl` 容器 + `thead th { position: sticky }`，超出在**列表内**滚动，`--row-h/--head-h` 按各自行高算出「5 行 + 表头」），面板整体 `max-height: calc(100vh - 48px)` 兜底；`fitPanel()` 在每次刷新后测量，**下方放不下就把面板翻到气泡上方**（直接改 host 的行内 style —— 定位是行内写死的，`:host` 规则压不过它），并绑定 resize 重算。户型接口最多见过 26 条，正是把面板撑出屏幕的场景。日志前缀 `[ajk-overlay]` / `[ajk-bg]`，调试钩子 `window.__edgePanelAnjuke`（`dump()` 看逐气泡名称匹配率、`detail(id)` 手动抓某个楼盘）。
-- `extension/background.js` — 图标点击开设置页 + DNR 头注入 + **SSH 采集持有者**（connectNative 流式接收宿主进度 → 持久化 `metricsProgress` 并广播）+ **行情取价代理**（腾讯+新浪双源互验、GBK 解码、按开市/休市分档缓存）
+- `extension/background.js` — 图标点击开设置页 + DNR 头注入 + **SSH 采集持有者**（connectNative 流式接收宿主进度 → 持久化 `metricsProgress` 并广播）+ **蓝牙电量转发**（`{type:"bluetooth"}` → 新建连接问一次宿主就断开，30s 硬超时）+ **行情取价代理**（腾讯+新浪双源互验、GBK 解码、按开市/休市分档缓存）
 - `extension/metrics.js` — 页面侧辅助：采集缓存/进度读写（`metrics` / `metricsProgress`）、宿主安装引导、错误识别；不直接 connectNative
 - `extension/cookies.js` — `chrome.cookies` 读取辅助（cursor.com 的 `WorkosCursorSessionToken`）
 - `extension/cursor.js` — cursor.com 直连（数据函数带 `*Api` 后缀）；含 403 自愈重试
@@ -99,6 +99,8 @@ bash package.sh
   - `dist/edge-panel-v<ver>-flat.zip` —— 顶层直接是扩展文件（无外层目录），**原地覆盖升级**用。扩展 ID 由目录绝对路径算出，所以升级必须覆盖【当前已加载的那个目录】；用带外层目录的包解压会多出一层新目录 = 新 ID = `storage.sync` 配置清空 + Native 宿主 `allowed_origins` 失配。**注意 Windows 资源管理器的「全部解压」会自动建一层与 zip 同名的文件夹**，升级时应打开 zip 全选复制粘贴进目标目录，或用 7-Zip「解压到当前文件夹」。
 - 安装扩展：解压 zip → `edge://extensions` → 开启「开发人员模式」→「加载解压缩的扩展」→ 选解压目录；按 Ctrl+T 看新标签页仪表盘。
 - 安装宿主：卡片提示「Native 宿主未安装」时点「下载并安装 Native 宿主」→ 3 个文件下到下载目录 `edge-panel-host/` → 双击 `install-edge-panel-host.bat`（PowerShell 复制 exe 到 `%LOCALAPPDATA%\edge-panel-host`、写 host manifest、`reg.exe` 注册 Edge）→ 点 ↻ 重试。
+  - 下载用 `conflictAction:"overwrite"` + in-flight 去重：**绝不能改回 `uniquify`** —— 连点会堆出 `edge-panel-host (1).exe`、「install-edge-panel-host (1).bat」，而安装脚本按固定文件名找 exe，副本全都装不上。
+  - 卡片提示里写明了「插件目录的 `native/` 里本来就有这三个文件，不必下载」——解压安装的场景直接用那份最省事，也不会触发浏览器的下载警告。
 - **扩展页无法静默注册宿主**（MV3 不能写注册表 / 任意外部路径），「下载 + 双击」是插件内唯一的安装通路。安装脚本是静态模板，位于 `native_host/`，打包时复制进 `native/`。
 
 ## Native 宿主（native_host/）
@@ -107,9 +109,35 @@ bash package.sh
 - 请求：`{"type":"collect","config":{...}}`。`config` 为**内联采集配置**（JSON/YAML 均可，宿主用 `yaml.Unmarshal` 解析，yaml.v3 兼容 JSON 且按 yaml 标签匹配 `ssh_defaults`/`du_paths`/`targets` 键）；也可用 `config_path` 指向磁盘文件
 - **采集期间流式上报进度**：`{"type":"progress","done":N,"total":M,"current":"name","status":"start|collecting|ok|error","phase":"connect|collect|du","error":"...","heartbeat":false}` —— 逐服务器状态变化各上报一次，长耗时（du 最长 120s）期间每 10s 发一次心跳（`heartbeat:true`）保活扩展侧 service worker；最终结果仍以一条 `{"last_updated":...,"servers":[...]}` 返回（无 `type` 字段，扩展据此区分进度与结果）
 - 响应：`{"last_updated":...,"servers":[...]}` 或 `{"error":"..."}`
-- **只采 `type:ssh` 目标**（df + du），不做本机采集
+- **只采 `type:ssh` 目标**（df + du），不做本机采集；蓝牙电量走同一进程的另一条命令（见下）
 - 配置优先级：内联 `config` > `config_path` / 环境变量 `EDGE_PANEL_CONFIG`。不再有编译期硬编码路径
 - 只读取配置：`ssh_defaults` / `du_paths` / `targets`（其余字段被忽略）
+- **蓝牙电量**：请求 `{"type":"bluetooth"}` → 响应
+  `{"devices":[{"name":"WH-1000XM5","battery":87,"connected":true}],"connectedOnly":true,"at":"..."}`。
+  Windows 上没有给 Go 的稳定蓝牙电量 API，所以宿主把脚本**落盘成 .ps1 再 `-File` 执行**
+  （`%LOCALAPPDATA%\edge-panel-host\bluetooth-scan.ps1`，UTF-8 **带 BOM**）。
+  不能用 `-EncodedCommand`：脚本含内嵌 C#，约 13k 字符 → UTF-16LE base64 约 35k，
+  超过 Windows 命令行 32767 的硬上限，会报 `fork/exec ...: The filename or extension is too long`。
+  脚本三步：① WinRT 的 `BluetoothDevice` /
+  `BluetoothLEDevice` + `ConnectionStatus = Connected` 拿「此刻连着」的设备名；
+  ② PnP 属性 `DEVPKEY_Bluetooth_Battery`（GUID `104EA319-6EE2-4701-BD47-8DDBF425BBE5`）
+  读电量；③ 按名字匹配两者，只留连着的。WinRT 那步失败就退化成「有电量读数即列出」，
+  响应里 `connectedOnly:false`，面板标注「连接状态未知」。
+  **脚本里有两条硬约束**：不能出现反引号（Go 的 raw string 会断，换行用
+  `[Console]::Out.WriteLine`）、显式设 `[Console]::OutputEncoding = UTF8`（否则中文设备名
+  在 GBK 控制台下乱码）。
+  **性能靠「只扫已连接设备的节点」，不是靠换读取 API**：`Get-PnpDeviceProperty` 在有的机器上
+  **~2s/次**（实测 61 个节点 = 2 分钟）。所以先用 WinRT 的已连接 MAC 过滤候选
+  （MAC 出现在 InstanceId 里即算），通常只剩 2~6 个节点 → 4~5s 出结果；
+  过滤不到才退到全量扫描，且 CIM 调用封顶 16 次（`$cimCap`）。
+  **试过并否决**的方案：① SetupAPI P/Invoke（`Add-Type` 编译 C#）—— 逻辑对但
+  `Add-Type` 在这台机器上编译慢，实测比过滤法更慢，已删；② 注册表
+  `Enum\<instance>\Properties\{...}` 直读 —— 实测只有空的 `Properties` 键，属性是易失的，已删。
+  另外**属性键必须带花括号**，写成 `"{GUID} 2"`；漏了花括号时 CIM 静默失败还照收 ~1s/次。
+  **不写死任何实例 ID / MAC**：候选来自运行时枚举与 WinRT，写死的只有系统常量属性键
+  `{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2`。解析（`EDGEPANEL_BT_JSON:` 前缀、数组/单对象兼容、按名字去重）
+  在 `btdevice.go`，与平台无关，`go test ./...` 可跑；非 Windows 构建走 `bt_other.go`
+  返回「只支持 Windows」
 
 ## 配置（SSH 服务器，设置页）
 
@@ -156,7 +184,14 @@ SSH 配置在设置页（options.html）「SSH 服务器」区块编辑，保存
 | 安居客气泡里「贝壳」一直显示「查询中」 | 修复前有三种假死：无记录也渲染成 loading（熔断后最常见）、fetch 无超时、渲染层抛错。现在都不会再停在「查询中」；若仍出现，跑 `__edgePanelAnjuke.beike()` 看每个小区的 `status` |
 | 安居客气泡里「贝壳」报「已暂停自动取数（上次失败：…）」 | 连续失败 2 次后的 3 分钟冷却（`force` 手点不受限）——原因就写在括号里；读不到 cookie 说明该浏览器没打开/登录过 `m.ke.com` |
 | 贝壳报「没有登录态/缺 lianjia_token」但浏览器确实登录着 | 0.9.2 及更早的误判：`{url}` 查询读不到子路径下的 token。0.9.3 起改成 `{url}`+`{domain}` 合并读取，且登录标记只作提示不再拦请求；报错里会列出实际读到的 cookie 名便于核对 |
-| 服务器采集失败 | 检查设置页 SSH 配置（凭据 / 网络） |
+| 蓝牙卡报「native host 断开 / host not found」 | Native 宿主没装或装的是旧版（旧版不认 `bluetooth` 命令）—— 点卡片上的「下载并安装 Native 宿主」重新装一次，再点重试 |
+| 蓝牙卡报「蓝牙电量只支持 Windows」 | 宿主跑在非 Windows 上（`bt_other.go` 的桩）。native messaging 只能拉起浏览器本机进程，Linux/macOS 上没有这套实现 |
+| 蓝牙卡一直「未发现正在连接的蓝牙设备」 | 设备都断开了，或该设备不向 Windows 上报电量（很多 BLE 设备不实现 GATT Battery Service / 不出 `DEVPKEY_Bluetooth_Battery`），或 WinRT 那步失败退化成按电量读数判断。用 `powershell -NoProfile -Command "Get-PnpDevice -PresentOnly | ? { $_.InstanceId -like 'BTHENUM*' }"` 能看到节点才谈得上电量 |
+| 蓝牙卡台数不对 / 多出同名设备 | PnP 里同一台设备常有多条节点（BTHENUM / BTHLE / 各服务），脚本按 InstanceId 去重、Go 再按名字去重（大小写不敏感） |
+| 蓝牙卡报「无法执行 powershell.exe: executable file not found in %PATH%」 | 0.9.8 及更早只按 PATH 找 `powershell.exe`，而浏览器拉起的 native host 环境里 PATH 可能不含 `System32\WindowsPowerShell\v1.0`（实测）。0.9.9 起先试 `%SystemRoot%` / `%windir%` / `C:\Windows` 下的绝对路径（含 `Sysnative`），再退回 PATH，最后兜底 `pwsh.exe`；仍失败时错误文案会列出试过的路径和当前 PATH |
+| 蓝牙卡报「蓝牙查询超时」 | 0.9.9 及更早用 `Get-PnpDeviceProperty` **枚举全部属性**，设备多的机器会超过 25s。0.9.10 起：① 先用 `-KeyName '{GUID} 2'` 直接读（一次调用）② 只对 Bluetooth 类节点做，读不到才退到 BTHENUM/BTHLE 全扫 ③ 整脚本 15s 预算 + `try/finally` **无论如何都先吐已扫到的结果**（`diag.timedOut=true`，面板标「部分结果」）④ 宿主 30s / 扩展 35s 两层超时。`diag` 里的 `connMs`/`pnpMs`/`scanned` 会打到 console（`[bluetooth] host diag:`）|
+| 蓝牙卡只有「未发现…」/「部分结果」/ 报错，不知道卡在哪 | 宿主**不能往 stdout 打日志**（那是 native messaging 协议），所以统一写文件：`%LOCALAPPDATA%\edge-panel-host\bluetooth.log`（每次查询一条：耗时、PowerShell 原始输出前 4KB、解析后 devices/diag）。脚本本身会落到 `%LOCALAPPDATA%\edge-panel-host\bluetooth-scan.ps1`，可以直接打开看它跑了什么（0.9.18 起不再单独发诊断脚本） |
+| 蓝牙卡「获取失败」且提示编码/乱码 | 脚本必须显式 `[Console]::OutputEncoding = UTF8`，改脚本时别删这两行 |
 | DeepSeek 会话页看不到浮层 | ①设置里没填该会话 id（可直接粘整条 URL）②扩展未重载 ③该页是首页/分享页而非会话页。会话页上会出现说明原因的小角标 |
 | 安居客气泡没出现标签 | ①扩展没重载（改了 manifest，必须重新加载）②日志里没有 `[ajk-bg] 观察到 mapNewlist 请求` → `webRequest` 权限或 host 权限没生效 ③气泡文本与接口名字对不上，用 `__edgePanelAnjuke.dump()` 看 `hit` |
 | 安居客面板太高/装不下 | 两个列表各封顶 5 行、超出列表内滚动（表头吸顶）；面板整体兜底 `100vh-48px`，下方空间不够会自动翻到气泡上方。列表行高改了要同步 `--row-h/--head-h`，否则「5 行」会不准 |

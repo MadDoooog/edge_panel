@@ -68,6 +68,21 @@
         </div>
       </div>
     </section>
+
+    <!-- 4. 蓝牙电量（本机已连接的蓝牙设备，经 Native 宿主取数） -->
+    <section class="card" id="card-bluetooth" data-card="bluetooth">
+      <div class="card-head" title="拖动移动 · 单击折叠">
+        <span class="caret" aria-hidden="true"></span>
+        <span class="card-title">蓝牙电量</span>
+        <span class="card-meta" id="bluetooth-updated"></span>
+        <button type="button" class="icon-btn" id="bluetooth-refresh" title="刷新">↻</button>
+      </div>
+      <div class="card-body">
+        <div id="bluetooth-list" class="bt-list">
+          <div class="loading">正在读取…</div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script src="chart.umd.min.js"></script>

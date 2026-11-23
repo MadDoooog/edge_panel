@@ -2,7 +2,7 @@
 
 Edge / Chrome **浏览器扩展**（MV3，零构建）：把个人仪表盘做成**新标签页上的悬浮卡片**，另在指定的 DeepSeek 会话页显示**持仓浮层**。
 
-- **新标签页（Ctrl+T）= 空白页 + 三张悬浮卡片**：Cursor 费用 / 服务器磁盘 / Release Matrix 状态 —— 可拖动、可折叠，位置与折叠状态记忆在你自己的浏览器里
+- **新标签页（Ctrl+T）= 空白页 + 四张悬浮卡片**：Cursor 费用 / 服务器磁盘 / Release Matrix 状态 / 蓝牙电量 —— 可拖动、可折叠，位置与折叠状态记忆在你自己的浏览器里
 - **DeepSeek 会话页 = 持仓浮层**：默认收成一颗悬浮球 `[● 持仓 | ⧉ | ⌄]` —— 圆点表示状态（绿=在带内 / 橙=出带 / 红=行情失败），**点「持仓」直接把它作为 .txt 附件发到输入框**（成功就继续待在球里，没成功自动展开卡片），`⧉` 复制快照，`⌄` 展开看明细（持仓明细、合计、四类占比、出带信号）。卡片里还有「复制 / 填入 / 转附件」三个动作。配色跟随 DeepSeek 自己的浅色/深色主题
 - **点工具栏图标 = 打开设置页**
 - **无后端服务、无 7×24 后台任务**：数据只在新标签页打开期间获取，SSH 采集由扩展后台持有（关页面也会继续）
@@ -10,7 +10,7 @@ Edge / Chrome **浏览器扩展**（MV3，零构建）：把个人仪表盘做�
 数据来源：
 
 - Cursor 用量 / 行情 **直连源站**（`host_permissions` 免 CORS；Cookie 与 Referer 由 background 的 `declarativeNetRequest` 动态规则注入）
-- 服务器磁盘走 **Native Messaging → Go 宿主** 按需 SSH 采集（df + du）
+- 服务器磁盘走 **Native Messaging → Go 宿主** 按需 SSH 采集（df + du）；**蓝牙电量**同样经宿主（扩展拿不到本机硬件），宿主在浏览器所在的 Windows 上用 PowerShell 查「已连接设备 + 电量」
 
 ## 功能
 
@@ -18,6 +18,7 @@ Edge / Chrome **浏览器扩展**（MV3，零构建）：把个人仪表盘做�
 |------|------|----------|
 | 新标签页卡片 | Cursor 用量 + 团队排名 | 直连 cursor.com；team_id / user_id 从 cookie 自动推导，设置里填 user_email 即可；图表按最近 30 天，芯片最前面另显示「**本月消耗**」（Cursor 自己返回的账期）；10 分钟缓存 |
 | 新标签页卡片 | 服务器磁盘 | Native Messaging → Go 宿主 SSH 采集（df + du）；宿主流式上报进度、采集由后台持有；24h 内不重复查询 |
+| 新标签页卡片 | 蓝牙电量 | 经 Native Messaging 问 Go 宿主；宿主用 PowerShell 读 WinRT 的「已连接」设备 + PnP 的 `DEVPKEY_Bluetooth_Battery` 电量，**只列此刻连着的设备**，余量 ≤20% 红、>20% 绿；60s 缓存，页面挂着时 2 分钟刷一次 |
 | 新标签页卡片 | Release Matrix 状态 | 直连 cygnus 的 DataTables 取数接口（`POST /release_matrix/releases/index`，Cookie/Referer 由 background 的 DNR 注入、`X-CSRFToken` 取 `csrftoken` cookie），每行按 **region - version - PBF - NGX - QA-NGX** 展示；`version` 参数在设置页配置（默认 `26q3`，多个用英文逗号分隔，如 `26m10w2,26m10w1`）；5 分钟缓存 |
 | DeepSeek 会话页 | 持仓浮层 | 仅在设置为指定会话 id 的会话页显示；行情经后台代理（腾讯+新浪双源互验）、算术与快照文本在本地 |
 | 安居客地图找房页 | 户型浮层 + 贝壳比价 | 地图气泡下方挂「**详情**」按钮，点开面板**自动**调 `LoudongHuxing` 接口取全部户型（表格只列 **户型/面积/总价**），面板下半部再叠一层**第三方信息源** —— 贝壳 `m.ke.com`：按小区名搜到贝壳小区后取该小区在售二手房前 10 条（户型/面积/总价/单价/标签），并给出「贝壳挂牌中位 vs 安居客小区均价」；按钮文字随即刷新成 `2/2/1-95平-92万|3/2/2-96平-144万` 缩略摘要；取数参数由 background 用 `webRequest` **观察页面自己调的** `mapNewlist` 请求取得，再由 background 代取纯 JSON 推回浮层 |
@@ -67,7 +68,7 @@ edge-panel/
 ├── extension/              # MV3 浏览器扩展（零构建）
 │   ├── manifest.json       # 清单：newtab 覆盖 + content_scripts + host_permissions
 │   ├── background.js       # 图标点击开设置页 + DNR 头注入 + SSH 采集持有者 + 行情取价代理
-│   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（Cursor / 磁盘 / Matrix 三张卡片）
+│   ├── newtab.html/css/js  # 新标签页悬浮仪表盘（Cursor / 磁盘 / Matrix / 蓝牙 四张卡片）
 │   ├── options.html/js     # 设置页（可折叠分块：cursor、Matrix、持仓、SSH；下载模板/导入）
 │   ├── deepseek-overlay.js # content script：DeepSeek 会话页持仓浮层（只读 + 复制快照）
 │   ├── anjuke-overlay.js   # content script：安居客地图找房气泡户型浮层（标签 + 面板 + 调接口补齐）
@@ -76,7 +77,7 @@ edge-panel/
 │   ├── chart.umd.min.js    # 本地 vendored Chart.js
 │   ├── cookies.js / metrics.js / cursor.js
 │   └── native/             # 打包产物：edge-panel-host.exe + 安装脚本（web_accessible_resources）
-├── native_host/            # Go Native Messaging 宿主源码（SSH-only）
+├── native_host/            # Go Native Messaging 宿主源码（SSH 采集 + 蓝牙电量）
 │   ├── main.go / config.go / collect_ssh.go / go.mod
 │   └── install-edge-panel-host.{ps1,bat}  # 安装脚本模板
 └── config.yaml             # 旧版遗留磁盘配置（已不再被读取）
@@ -88,7 +89,7 @@ edge-panel/
 - **外观跟随浏览器主题**：亮/暗由 `prefers-color-scheme` 自动切换，取色贴近浏览器原生界面（`extension/theme.css`）；Cursor 图表配色也跟着主题走。
 - **设置页只有一个「保存」按钮**，一次写入 Cursor / Matrix（version/region/环节）/ SSH（`storage.sync`）与持仓（`storage.local`）；保存后回读存储显示「实际存进去了什么」。各分块默认折叠，点标题栏展开。
 - **新标签页被本扩展接管**（`chrome_url_overrides.newtab`）—— 这是让卡片"浮在空白页上"的唯一稳妥做法：扩展无法向 `about:blank` 注入脚本。想恢复默认新标签页就在 `edge://extensions` 里停用本扩展。
-- **侧边栏已移除**（不再需要 Side Panel API）：三张卡片在新标签页，持仓在 DeepSeek 页，设置页点图标打开。
+- **侧边栏已移除**（不再需要 Side Panel API）：四张卡片在新标签页，持仓在 DeepSeek 页，设置页点图标打开。
 - 卡片位置/折叠状态存 `chrome.storage.local`（`newtabCards`）；持仓配置同样存 local（含金额，**不**随浏览器账号上云）；Cursor / Matrix / SSH 配置仍在 `chrome.storage.sync`（Matrix 取数结果缓存 `matrixReleases` 在 local，5 分钟）。
 - **Release Matrix 卡片**取数在 background：`POST https://cygnus.telenav.com/release_matrix/releases/index` 是 Django 的 DataTables serverSide 接口，**必须带** `Referer`（HTTPS CSRF 校验，缺了直接 403）、Cookie（SameSite=Lax，扩展发的跨站请求带不上 → DNR 注入）、`Origin`（Chrome 自动加的 `chrome-extension://<id>` 会被站点判 403，DNR 覆盖回站点 origin）与 `X-CSRFToken`（值就是 `csrftoken` cookie 原文，Django 同时接受 32 位未掩码 secret）；三者都来自**同一次** `chrome.cookies` 读取，避免 cookie 轮换导致 403。`version` / `region` / 环节（表格列，如 `PBF,NGX,QA-NGX`）都在设置页配，逗号分隔；`version` 还能在卡片头上直接点改，改完自动刷新。
 - **服务器磁盘**由扩展后台（service worker）经 `connectNative` 发起采集，宿主流式上报进度（逐服务器 + 每 10s 心跳保活），因此**关掉新标签页采集仍继续**；进度持久化在 `chrome.storage.local`，重新打开时先显示「正在采集到 xx」。

@@ -38,9 +38,18 @@ async function saveMetricsProgress(p) {
   await chrome.storage.local.set({ [METRICS_PROGRESS_KEY]: p });
 }
 
-/** 把插件自带的宿主与安装脚本下载到下载目录（edge-panel-host/ 子目录），由用户双击 .bat 注册。 */
+/**
+ * 把插件自带的宿主与安装脚本下载到下载目录（edge-panel-host/ 子目录），由用户双击 .bat 注册。
+ * - conflictAction: "overwrite"：重复点只覆盖同名文件，不再堆出 "(1)" "(2)" 副本
+ *   （带后缀的 exe 会让安装脚本找不到 edge-panel-host.exe）
+ * - 连点合并成一次下载（in-flight promise），免得一次弹好几个提示
+ */
+let hostDownloadInFlight = null;
+
 function installNativeHost() {
-  return Promise.all(
+  if (hostDownloadInFlight) return hostDownloadInFlight;
+
+  hostDownloadInFlight = Promise.all(
     NATIVE_HOST_FILES.map(
       (name) =>
         new Promise((resolve, reject) => {
@@ -48,7 +57,7 @@ function installNativeHost() {
             {
               url: chrome.runtime.getURL(`native/${name}`),
               filename: `${NATIVE_HOST_DOWNLOAD_DIR}/${name}`,
-              conflictAction: "uniquify",
+              conflictAction: "overwrite",
             },
             (id) => {
               if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -57,5 +66,14 @@ function installNativeHost() {
           );
         })
     )
-  );
+  ).finally(() => {
+    hostDownloadInFlight = null;
+  });
+
+  return hostDownloadInFlight;
 }
+
+/** 下载完之后的固定提示：文件在插件目录的 native/ 里本来就有，双击 .bat 即可。 */
+const NATIVE_HOST_INSTALL_HINT =
+  "双击 下载/edge-panel-host/install-edge-panel-host.bat（SmartScreen 点「更多信息 → 仍要运行」），再回来点重试；" +
+  "插件目录的 native/ 里也有同样三个文件，可以直接用那里的 .bat，不必下载";

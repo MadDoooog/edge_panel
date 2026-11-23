@@ -27,6 +27,7 @@ const DEFAULT_POS = {
   cursor: { x: 40, y: 40 },
   servers: { x: 40, y: 400 },
   matrix: { x: 520, y: 40 },
+  bluetooth: { x: 600, y: 400 },
 };
 
 function escHtml(str) {
@@ -270,7 +271,10 @@ function renderMetricsError(err) {
         installNativeHost()
           .then(() => {
             b.textContent = "✓ 已下载";
-            if (updated) updated.textContent = "已下载到 下载/edge-panel-host/，请双击 install-edge-panel-host.bat";
+            if (updated) {
+              updated.textContent = "已下载 → 双击 .bat 安装";
+              updated.title = NATIVE_HOST_INSTALL_HINT;
+            }
           })
           .catch((e) => {
             b.textContent = "下载失败";
@@ -843,6 +847,161 @@ document.getElementById("matrix-refresh").addEventListener("click", () => refres
 document.getElementById("matrix-version").addEventListener("click", openMatrixVersionEditor);
 
 /* ============================================================
+   蓝牙电量（Native Messaging → Go 宿主）
+   扩展拿不到本机蓝牙，所以问宿主（native_host/bt_windows.go）：它跑在
+   浏览器所在的 Windows 上，用 PowerShell 读「已连接设备 + 电量」。
+   结果缓存 60s —— 每次开新标签页都跑一遍 PowerShell 太浪费。
+   ============================================================ */
+const BT_CACHE_KEY = "bluetoothCache";
+const BT_TTL_MS = 60 * 1000;
+const BT_POLL_MS = 2 * 60 * 1000;
+const BT_LOW_PCT = 20; // 余量 ≤20% 标红，>20% 标绿
+const BT_LOG_HINT = "宿主日志：%LOCALAPPDATA%\\edge-panel-host\\bluetooth.log（实际跑的脚本：同目录 bluetooth-scan.ps1）";
+
+async function loadBluetoothCache() {
+  try {
+    const obj = await chrome.storage.local.get(BT_CACHE_KEY);
+    const c = obj[BT_CACHE_KEY];
+    if (!c || Date.now() - (c.ts || 0) > BT_TTL_MS) return null;
+    return c;
+  } catch (_) {
+    return null;
+  }
+}
+
+function btRowHtml(d) {
+  // 注意 Number(null) === 0：宿主的 battery 是 *int，读不到时是 null，不能当 0 处理
+  const raw = d && d.battery;
+  const has = raw !== null && raw !== undefined && Number.isFinite(Number(raw));
+  const pct = has ? Number(raw) : 0;
+  const tone = has ? (pct <= BT_LOW_PCT ? " low" : " ok") : " none";
+  const width = has ? Math.max(0, Math.min(100, pct)) : 0;
+  const name = (d && d.name) || "未知设备";
+  const tip = has ? `${name} · 剩余 ${Math.round(pct)}%` : `${name} · 电量未知`;
+  return `<div class="bt-row" title="${escHtml(tip)}">
+    <span class="bt-name">${escHtml(name)}</span>
+    <span class="bt-bar"><span class="bt-fill${tone}" style="width:${width}%"></span></span>
+    <span class="bt-pct${tone}">${has ? `${Math.round(pct)}%` : "—"}</span>
+  </div>`;
+}
+
+function renderBluetooth(payload) {
+  const list = document.getElementById("bluetooth-list");
+  const updated = document.getElementById("bluetooth-updated");
+  if (!list) return;
+  const devices = Array.isArray(payload.devices) ? payload.devices : [];
+  const diag = payload.diag || {};
+  if (devices.length) {
+    list.innerHTML = devices.map(btRowHtml).join("");
+  } else {
+    // 空面板必须能解释「为什么空」：扫了几个节点、几个有电量读数
+    const bits = [];
+    if (diag.btNodes != null) bits.push(`BTHENUM/BTHLE ${diag.btNodes}`);
+    if (diag.scanned != null && diag.scanned > 0) bits.push(`已扫 ${diag.scanned}`);
+    if (diag.withBattery != null) bits.push(`有电量读数 ${diag.withBattery}`);
+    if (diag.classNodes != null) bits.push(`蓝牙类节点 ${diag.classNodes}`);
+    if (diag.connKnown === false) bits.push("连接状态未知");
+    const detail = bits.length ? `（${escHtml(bits.join(" · "))}）` : "";
+    list.innerHTML = `<div class="loading">未发现正在连接的蓝牙设备${detail}</div>`;
+    list.title = BT_LOG_HINT; // 鼠标悬停能看到日志位置
+  }
+
+  if (updated) {
+    const time = matrixTime(payload.at || Date.now());
+    // 连接状态拿不到时（WinRT 不可用）列出的是「有电量读数」的设备，标注一下
+    const scope = payload.connectedOnly === false ? " · 连接状态未知" : "";
+    // 宿主脚本有时间预算，超预算会带着已扫到的设备返回
+    const partial = diag.timedOut ? " · 部分结果" : "";
+    if (diag.timedOut) updated.title = "扫描被时间预算截断（只列了已扫到的）—— " + BT_LOG_HINT;
+    if (diag.fallback === "conn-filter-empty") {
+      // 有电量读数但没一个匹配上「已连接」—— 列表是兜底展示，提示一下
+      updated.title = "连接状态没匹配上（PnP 名称/MAC 与 WinRT 不一致），先按有电量读数列出";
+    }
+    updated.textContent = `${devices.length ? `${devices.length} 台` : "无设备"} · ${time}${scope}${partial}`;
+  }
+}
+
+/** 失败：宿主没装就给安装按钮（与服务器卡片同一套原生宿主安装流程）。 */
+function renderBluetoothError(err) {
+  const list = document.getElementById("bluetooth-list");
+  const updated = document.getElementById("bluetooth-updated");
+  if (!list) return;
+  const msg = String((err && err.message) || err);
+  const actions = [];
+  // 宿主太旧（装的是 0.9.6 及更早的 exe）会回 "unsupported type: bluetooth" —— 也要给安装入口
+  if (isNativeHostMissing(err) || /unsupported type/i.test(msg)) {
+    actions.push({ act: "install-host", label: "下载并安装 Native 宿主" });
+  }
+  actions.push({ act: "retry", label: "重试" });
+
+  list.innerHTML = `<div class="loading error-text">${escHtml(msg)}</div>
+    <div class="metric-actions">${actions
+      .map((a) => `<button type="button" class="metric-action" data-act="${a.act}">${a.label}</button>`)
+      .join("")}</div>`;
+
+  for (const b of list.querySelectorAll(".metric-action")) {
+    b.addEventListener("click", () => {
+      if (b.dataset.act === "retry") {
+        fetchBluetooth(true);
+        return;
+      }
+      b.textContent = "下载中…";
+      b.disabled = true;
+      installNativeHost()
+        .then(() => {
+          b.textContent = "✓ 已下载";
+          if (updated) {
+            updated.textContent = "已下载 → 双击 .bat 安装";
+            updated.title = NATIVE_HOST_INSTALL_HINT;
+          }
+        })
+        .catch((e) => {
+          b.textContent = "下载失败";
+          b.disabled = false;
+          if (updated) updated.textContent = `下载失败: ${e.message}`;
+        });
+    });
+  }
+  if (updated) {
+    updated.textContent = "获取失败";
+    updated.title = BT_LOG_HINT;
+  }
+}
+
+async function fetchBluetooth(force = false) {
+  const btn = document.getElementById("bluetooth-refresh");
+  btn?.classList.add("spinning");
+  try {
+    if (!force) {
+      const cached = await loadBluetoothCache();
+      if (cached) {
+        renderBluetooth(cached);
+        return;
+      }
+    }
+    const resp = await chrome.runtime.sendMessage({ type: "bluetooth" });
+    if (!resp || !resp.ok) throw new Error((resp && resp.error) || "后台无响应");
+    // 先把 at 补成毫秒（宿主给的是 ISO 串，缓存里也统一存下来）
+    const payload = { ...resp, ts: Date.now() };
+    if (resp.diag) console.info("[bluetooth] host diag:", resp.diag); // 排查慢在哪一步
+    await chrome.storage.local.set({ [BT_CACHE_KEY]: payload });
+    renderBluetooth(payload);
+  } catch (err) {
+    console.error("[bluetooth] error:", err);
+    renderBluetoothError(err);
+  } finally {
+    btn?.classList.remove("spinning");
+  }
+}
+
+function initBluetoothCard() {
+  fetchBluetooth(false);
+  setInterval(() => fetchBluetooth(false), BT_POLL_MS); // 页面挂着时每 2 分钟对一次
+}
+
+document.getElementById("bluetooth-refresh").addEventListener("click", () => fetchBluetooth(true));
+
+/* ============================================================
    启动
    ============================================================ */
 (async function init() {
@@ -856,6 +1015,7 @@ document.getElementById("matrix-version").addEventListener("click", openMatrixVe
   authReady.then(() => fetchCursorUsage()); // 打开时优先用缓存
   authReady.then(() => refreshMatrix(false)); // 同上：cookie 刷新后再取 Matrix
   initMetrics();
+  initBluetoothCard();
 
   // 跟随浏览器主题：亮/暗切换时重绘图表
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
