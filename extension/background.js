@@ -19,7 +19,7 @@ const CURSOR_ORIGIN = "https://cursor.com";
 //      32 位未掩码 secret 与 64 位掩码 token；前者省掉一次刮页面 HTML）
 // 三者在 background 里一次性读取，避免 DNR 规则里的 cookie 与 header 用的 token
 // 来自两次不同读取（csrf cookie 轮换时会 403）。
-const KE_ORIGIN = "https://m.ke.com"; // 贝壳移动站（安居客气泡的第三方信息源）
+const KE_COOKIE_URL = "https://www.ke.com/"; // 贝壳 PC 站（安居客气泡的第三方信息源）
 const CYGNUS_ORIGIN = "https://cygnus.telenav.com";
 const CYGNUS_RELEASES_URL = `${CYGNUS_ORIGIN}/release_matrix/releases/index`;
 const CYGNUS_REFERER = `${CYGNUS_ORIGIN}/release_matrix/releases/index?mo=t&region=hkm%2Cisc%2Csea&version=`;
@@ -74,7 +74,7 @@ async function updateAuthRules() {
   const [cursor, cygnus, ke] = await Promise.all([
     readCookies(CURSOR_ORIGIN, "cursor.com"),
     readCookies(CYGNUS_ORIGIN, "telenav.com"),
-    readCookies(KE_ORIGIN, "ke.com"),
+    readCookies(KE_COOKIE_URL, "ke.com"),
   ]);
   const cursorCookie = cursor.header;
   const cygnusCookie = cygnus.header;
@@ -145,8 +145,8 @@ async function updateAuthRules() {
     });
   }
 
-  // 贝壳小区二手房页（安居客气泡的第三方信息源）：必须带登录 cookie，
-  // 否则 302 到 hip.ke.com/captcha（风控页），或 200 但房源列表为空。
+  // 贝壳 PC 站小区二手房页（安居客气泡的第三方信息源）：必须带登录 cookie，
+  // 否则 302 到 clogin.ke.com 登录页（移动站则是 hip.ke.com/captcha 验证码页）。
   // 实测 Referer / Origin 都不是必需的，所以只注入 cookie。
   if (keCookie) {
     rules.push({
@@ -157,10 +157,9 @@ async function updateAuthRules() {
         requestHeaders: [{ header: "cookie", operation: "set", value: keCookie }],
       },
       condition: {
-        // 小区页路径是 /<city>/ershoufang/c<id>/（如 /xa/ershoufang/c3820048832522485/），
-        // 城市段夹在中间 —— urlFilter 是连续匹配，写 "||m.ke.com/ershoufang/c"
-        // 永远匹配不上（实测：注入不生效 → 302 到风控页），只能用正则。
-        regexFilter: "^https://m\\.ke\\.com/[a-z]{2,12}/ershoufang/c\\d+",
+        // PC 站城市在主机名里（xa.ke.com），路径是 /ershoufang/c<id>/。
+        // urlFilter 做不了主机名变量的匹配，只能用正则。
+        regexFilter: "^https://[a-z]{2,12}\\.ke\\.com/ershoufang/c\\d+",
         resourceTypes: ["xmlhttprequest"],
       },
     });
@@ -731,36 +730,71 @@ async function fetchMatrixReleases(force) {
 }
 
 /* ============================================================
-   贝壳（m.ke.com）二手房 —— 给安居客气泡当第三方信息源
+   贝壳 PC 站（<city>.ke.com）二手房 —— 给安居客气泡当第三方信息源
    ------------------------------------------------------------
-   两段取数（实测结论，别凭直觉改）：
-     1) 联想接口 GET /mensa/<city>/sug/index?channel=ershoufang&query=<小区名>
-        —— 【不需要 cookie / Referer / UA】（带与不带 cookie 返回字节完全一致），
-        返回小区 id、在售套数 count、region 与 mUrl。<city> 路径段起城市限定作用
-        （bj → 0 条、xx → 0 条、xa → 命中），用安居客主机首段即可
-        （xa.fang.anjuke.com → xa）。
-     2) 小区二手房页 GET <mUrl>（形如 /xa/ershoufang/c<id>/）
-        —— 【必须带登录态 cookie】：完全不带 → 302 到 hip.ke.com/captcha（风控
-        验证，不是登录页）；只带 hip/访客 cookie 不带 lianjia_token → 200 但
-        __PRELOADED_STATE__.ershoufangList.list 为空；带 lianjia_token +
-        security_ticket → 完整数据。Referer / Origin 都不是必需的（实测 200），
-        所以 DNR 规则 6 只注入 cookie。
-        房源数据在 HTML 的 window.__PRELOADED_STATE__ 里（服务端预加载），
-        不用跑 JS：list[] 有 desc(户型/面积/朝向)、totalPrice、unitPrice、tags。
-   风控敏感：只在用户点开气泡面板时取一次，按 城市|小区名 缓存 6h，
-   连续失败 2 次就熔断（要求用户手点「查贝壳」），避免拿用户账号去撞验证码。
+   为什么用 PC 站而不是移动站（m.ke.com）：
+     移动站小区页经常直接 302 到 hip.ke.com/captcha（验证码）；PC 站没登录时
+     跳 clogin.ke.com 登录页，风控压力小得多。
+   两段取数：
+     1) 联想 GET /api/headerSearchForPlatC?channel=ershoufang
+              &cityId=<6 位城市 adcode>&query=<小区名>
+        —— cityId 必填，缺了返回空；count 即在售套数，url 即小区在售列表页。
+        结果里混着地铁站/商圈，只认 sugTypeName.text === "小区" 或 /ershoufang/c<id>/。
+     2) 列表页 GET <city>.ke.com/ershoufang/c<id>/
+        —— 需要登录 cookie（DNR 规则 6 注入）。页面是服务端渲染的
+        ul.sellListContent > li。service worker 没有 DOMParser，所以这里只取 HTML，
+        交给内容脚本解析，解析结果再经 beike-cache-put 回写缓存。
+   风控：按 城市|小区名 缓存 6h；连续失败 2 次熔断 3 分钟，避免拿用户账号撞验证码。
    ============================================================ */
-const BEIKE_ORIGIN = "https://m.ke.com";
-const BEIKE_CACHE_KEY = "beikeCommunities";
 const BEIKE_TTL_MS = 6 * 60 * 60 * 1000;
 const BEIKE_CACHE_MAX = 60; // 缓存条目上限
 const BEIKE_MAX_FAILS = 2; // 连续失败几次后暂停自动取数
-const BEIKE_COOLDOWN_MS = 3 * 60 * 1000; // 暂停多久后自动再试一次（避免永久闩死）
+const BEIKE_COOLDOWN_MS = 3 * 60 * 1000; // 暂停多久后自动再试一次
 const BEIKE_CITY_RE = /^[a-z]{2,12}$/;
 
+// 城市子域 → 联想接口要的 cityId（城市级 adcode）。
+// 安居客地图页主机首段就是城市拼音（xa.fang.anjuke.com → xa）；认不出兜底西安。
+const BEIKE_CITY_IDS = {
+  xa: "610100",
+  bj: "110000",
+  sh: "310000",
+  tj: "120000",
+  cq: "500000",
+  gz: "440100",
+  sz: "440300",
+  cd: "510100",
+  hz: "330100",
+  nj: "320100",
+  wh: "420100",
+  cs: "430100",
+  zz: "410100",
+  jn: "370100",
+  qd: "370200",
+  dl: "210200",
+  sy: "210100",
+  xm: "350200",
+  fz: "350100",
+  hf: "340100",
+  nc: "360100",
+  hrb: "230100",
+  cc: "220100",
+  sjz: "130100",
+  ty: "140100",
+  hhht: "150100",
+  lz: "620100",
+  su: "320500",
+  wx: "320200",
+  nb: "330200",
+  dg: "441900",
+  fs: "440600",
+  zh: "440400",
+  huizhou: "441300",
+  quanzhou: "350500",
+};
+
 let beikeFails = 0; // 连续失败计数（service worker 生命周期内）
-let beikeLastError = ""; // 上次真实失败原因（熔断时要把原因一起说出来，否则只剩「已暂停」没法排查）
-let beikeBlockedUntil = 0; // 冷却截止时间：到点自动恢复，不必等用户手点
+let beikeLastError = ""; // 上次真实失败原因（熔断时要把原因一起说出来）
+let beikeBlockedUntil = 0; // 冷却截止时间：到点自动恢复
 
 /** 带硬超时的 fetch —— 贝壳偶发拖住连接时，必须给出结论而不是永远 pending。 */
 async function fetchWithTimeout(url, opts, ms, what) {
@@ -776,113 +810,48 @@ async function fetchWithTimeout(url, opts, ms, what) {
   }
 }
 
-/** sug 联想接口 URL（city 为城市拼音段，如 xa）。 */
-function beikeSugUrl(city, name) {
-  return `${BEIKE_ORIGIN}/mensa/${city}/sug/index?channel=ershoufang&query=${encodeURIComponent(name)}`;
+function beikeOrigin(city) {
+  return `https://${city}.ke.com`;
 }
 
-/** 从 JSON 文本里按括号配对切出一个完整值（浏览器里没有 raw_decode）。 */
-function sliceJsonValue(text, start) {
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') inStr = true;
-    else if (ch === "{" || ch === "[") depth++;
-    else if (ch === "}" || ch === "]") {
-      depth--;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return "";
+function beikeCityId(city) {
+  return BEIKE_CITY_IDS[String(city || "").toLowerCase()] || BEIKE_CITY_IDS.xa;
 }
 
-/** sug 响应 → 最佳匹配（优先与查询名逐字相同的那条，否则取第一条）。 */
-function parseBeikeSug(json, query) {
-  const list = (((json || {}).data || {}).data || {}).result;
+/** 联想接口 URL（city 为城市拼音子域，如 xa；cityId 为 6 位城市 adcode）。 */
+function beikeSugUrl(city, cityId, name) {
+  const qs = new URLSearchParams({ channel: "ershoufang", cityId, query: name });
+  return `${beikeOrigin(city)}/api/headerSearchForPlatC?${qs.toString()}`;
+}
+
+/**
+ * 联想响应 → 最佳小区。
+ * result 里会混进地铁站/商圈/写字楼，只认 sugTypeName.text === "小区"
+ * 或 url 是 /ershoufang/c<数字>/ 的条目。
+ */
+function parseBeikeSug(json, query, origin) {
+  const data = (json || {}).data;
+  const list = Array.isArray(data) ? [] : (data && data.result) || [];
   if (!Array.isArray(list) || !list.length) return null;
+
   const squash = (s) => String(s || "").replace(/\s+/g, "");
   const q = squash(query);
-  const hit = list.find((it) => squash(it.text) === q) || list[0];
+  const community = list.filter((it) => {
+    const type = String((it.sugTypeName && it.sugTypeName.text) || "");
+    return type === "小区" || /\/ershoufang\/c\d+/.test(String(it.url || ""));
+  });
+  if (!community.length) return null;
+
+  const hit = community.find((it) => squash(it.text) === q) || community[0];
   if (!hit || !hit.id) return null;
-  const rel = String(hit.mUrl || "");
+  const rel = String(hit.url || "").replace(/\?.*$/, "");
   return {
     id: String(hit.id),
     name: String(hit.text || ""),
     region: String(hit.region || "").trim().replace(/\s+/g, " "),
     count: Number(hit.count) || 0,
     exact: squash(hit.text) === q,
-    url: rel ? new URL(rel, BEIKE_ORIGIN).toString() : "",
-  };
-}
-
-/** HTML → window.__PRELOADED_STATE__（服务端预加载，不用跑 JS）。 */
-function parseBeikeState(html) {
-  const text = String(html || "");
-  const m = text.match(/window\.__PRELOADED_STATE__\s*=\s*/);
-  if (!m) return null;
-  const raw = sliceJsonValue(text, m.index + m[0].length);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (err) {
-    console.warn("[beike] __PRELOADED_STATE__ 解析失败:", err && err.message);
-    return null;
-  }
-}
-
-/** "9,466元/平" / "1.2万元/平" → 数字（元/㎡）。 */
-function parseBeikeUnit(s) {
-  const str = String(s || "");
-  const n = Number(str.replace(/[^\d.]/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return /万/.test(str) ? Math.round(n * 10000) : Math.round(n);
-}
-
-/** 预加载数据 → 面板要的列表（户型/面积/总价/单价/标签 + 单价区间）。 */
-function parseBeikeListings(state) {
-  const block = (state && state.ershoufangList) || {};
-  const rows = Array.isArray(block.list) ? block.list : [];
-  const listings = rows.map((r) => {
-    const segs = String(r.desc || "")
-      .split("/")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    return {
-      title: String(r.title || ""),
-      rooms: segs[0] || "",
-      area: segs.find((s) => /㎡|m²|平米|平$/.test(s)) || segs[1] || "",
-      facing: segs.find((s) => /[东南西北]/.test(s) && !/㎡|m²/.test(s)) || "",
-      total: String(r.totalPrice || ""),
-      unit: String(r.unitPrice || ""),
-      unitNum: parseBeikeUnit(r.unitPrice),
-      tags: (Array.isArray(r.tags) ? r.tags : []).map((t) => String(t.title || "")).filter(Boolean),
-      url: String(r.houseUrl || ""),
-      vr: Boolean(r.isVr),
-      hot: Boolean(r.brandTags && r.brandTags.title),
-    };
-  });
-  const nums = listings.map((l) => l.unitNum).filter((n) => n != null).sort((a, b) => a - b);
-  const mid = nums.length
-    ? nums.length % 2
-      ? nums[(nums.length - 1) / 2]
-      : Math.round((nums[nums.length / 2 - 1] + nums[nums.length / 2]) / 2)
-    : null;
-  const listData = block.listData || {};
-  return {
-    totalCount: Number(listData.totalCount) || 0,
-    hasMore: Boolean(listData.hasMoreData),
-    listings,
-    unitMin: nums.length ? nums[0] : null,
-    unitMax: nums.length ? nums[nums.length - 1] : null,
-    unitMedian: mid,
+    url: rel ? new URL(rel, origin).toString() : `${origin}/ershoufang/c${hit.id}/`,
   };
 }
 
@@ -897,7 +866,9 @@ async function readBeikeCache() {
 
 async function writeBeikeCache(map) {
   try {
-    const keys = Object.keys(map).sort((a, b) => (map[b].ts || 0) - (map[a].ts || 0)).slice(0, BEIKE_CACHE_MAX);
+    const keys = Object.keys(map)
+      .sort((a, b) => (map[b].ts || 0) - (map[a].ts || 0))
+      .slice(0, BEIKE_CACHE_MAX);
     const trimmed = {};
     for (const k of keys) trimmed[k] = map[k];
     await chrome.storage.local.set({ [BEIKE_CACHE_KEY]: trimmed });
@@ -906,9 +877,22 @@ async function writeBeikeCache(map) {
   }
 }
 
+/** 内容脚本解析完 PC 页后回写缓存（background 里没有 DOMParser）。 */
+async function cacheBeikePayload(name, city, payload) {
+  const q = String(name || "").trim();
+  if (!q || !payload || !Array.isArray(payload.listings)) return { ok: false };
+  const c = BEIKE_CITY_RE.test(String(city || "")) ? String(city) : "xa";
+  const cache = await readBeikeCache();
+  cache[`${c}|${q}`] = { ts: Date.now(), payload };
+  await writeBeikeCache(cache);
+  return { ok: true, key: `${c}|${q}` };
+}
+
 /**
- * 小区名 → 贝壳在售二手房。name 来自安居客气泡，city 取自安居客主机首段。
- * 未匹配到小区时返回 {ok:true, miss:true}（不是错误）；风控/未登录会抛错。
+ * 小区名 → 贝壳 PC 小区在售页。
+ * 命中缓存返回 { ok:true, cached:true, ...payload }；
+ * 否则返回 { ok:true, hit, html, city, cityId }（HTML 交给内容脚本解析）。
+ * 未匹配到小区返回 { ok:true, miss:true }（不是错误）；登录/风控问题抛错。
  */
 async function fetchBeikeCommunity(name, city, force) {
   const q = String(name || "").trim();
@@ -926,7 +910,7 @@ async function fetchBeikeCommunity(name, city, force) {
   }
 
   try {
-    return await beikeAttempt({ name: q, c, key, cache });
+    return await beikeAttempt({ name: q, city: c, cityId: beikeCityId(c) });
   } catch (err) {
     beikeFails++;
     beikeLastError = String((err && err.message) || err);
@@ -937,58 +921,42 @@ async function fetchBeikeCommunity(name, city, force) {
 
 /** 真正干活的两次请求（失败记账在调用方，避免熔断自身也被计数）。 */
 async function beikeAttempt(ctx) {
-  const { name, c, key, cache } = ctx;
+  const { name, city, cityId } = ctx;
+  const origin = beikeOrigin(city);
 
   // ① 联想：小区名 → 贝壳小区（无需登录）
-  const sugResp = await fetchWithTimeout(beikeSugUrl(c, name), { credentials: "omit", cache: "no-store" }, 10000, "贝壳联想接口");
+  const sugResp = await fetchWithTimeout(
+    beikeSugUrl(city, cityId, name),
+    { credentials: "omit", cache: "no-store" },
+    10000,
+    "贝壳联想接口"
+  );
   if (!sugResp.ok) throw new Error(`贝壳联想接口 HTTP ${sugResp.status}`);
-  const hit = parseBeikeSug(await sugResp.json(), name);
-  if (!hit) {
-    const payload = { miss: true, name, city: c, at: new Date().toISOString() };
-    cache[key] = { ts: Date.now(), payload };
-    await writeBeikeCache(cache);
-    return { ok: true, ...payload };
-  }
+  const hit = parseBeikeSug(await sugResp.json(), name, origin);
+  if (!hit) return { ok: true, miss: true, name, city, cityId, at: new Date().toISOString() };
 
-  // ② 小区二手房页：需要登录 cookie，由 DNR 规则 6 注入（与 cookie 同一次读取）
-  const { keCookie, keCookieNames } = await updateAuthRules();
-  if (!keCookie) {
-    // 没有任何 cookie 时站点必然 302 到风控页，这里快速给出更准确的提示
-    throw new Error("浏览器里读不到 m.ke.com 的 cookie —— 请用本浏览器打开一次 m.ke.com（并登录），再点「查贝壳」");
-  }
-  // 「有没有 lianjia_token」只是**提示**，不能拿来拦请求（实测：明明登录了，
-  // 但 token 被设在子路径下时 {url} 读不到，一拦就把能成功的请求挡死了）。
-  const hasLoginMark = /(lianjia_token|security_ticket|login_ucid)=/.test(keCookie);
-  const cookieHint = `读到 ${keCookieNames.length} 个 cookie${hasLoginMark ? "" : `（${keCookieNames.slice(0, 8).join(", ")}；未见 lianjia_token/security_ticket）`}`;
+  // ② 小区在售列表页：登录 cookie 由 DNR 规则 6 注入（与这次读取同源）。
+  // 读不到 cookie 也照样发：没注入时站点会跳登录页，由响应给出更准确的提示。
+  const { keCookie } = await updateAuthRules();
+  if (!keCookie) console.warn("[beike] chrome.cookies 读不到 ke.com cookie，直接尝试请求");
   const pageResp = await fetchWithTimeout(
-    hit.url || `${BEIKE_ORIGIN}/${c}/ershoufang/c${hit.id}/`,
+    hit.url,
     { credentials: "omit", cache: "no-store" },
     15000,
     "贝壳小区页"
   );
-  if (/hip\.ke\.com/.test(pageResp.url || "")) {
-    throw new Error("被贝壳风控拦截（跳转到验证码页）—— 请在浏览器打开一次 m.ke.com 通过验证");
+  const finalUrl = pageResp.url || "";
+  if (/clogin\.ke\.com|\/login/i.test(finalUrl)) {
+    throw new Error(`需要登录贝壳：请先在浏览器里打开并登录 ${city}.ke.com，再点「查贝壳」`);
+  }
+  if (/hip\.ke\.com|captcha/i.test(finalUrl)) {
+    throw new Error(`被贝壳风控拦截（验证码页）—— 请在浏览器里打开一次 ${city}.ke.com 通过验证`);
   }
   if (!pageResp.ok) throw new Error(`贝壳小区页 HTTP ${pageResp.status}`);
   const html = await pageResp.text();
-  const state = parseBeikeState(html);
-  if (!state) {
-    throw new Error(`贝壳页面结构不认识（没有 window.__PRELOADED_STATE__）—— 可能是登录态/风控页（${cookieHint}）`);
-  }
-  const data = parseBeikeListings(state);
-  if (!data.listings.length) {
-    throw new Error(
-      `贝壳页面打开了但房源列表为空 —— 该小区可能确实没有在售${hasLoginMark ? "" : "；若浏览器里确实已登录，则是登录态没被读到（" + cookieHint + "）"}`
-    );
-  }
+  if (!html || html.length < 500) throw new Error("贝壳小区页返回内容过短（可能被拦截）");
 
-  const payload = { ...hit, ...data, city: c, at: new Date().toISOString() };
-  beikeFails = 0;
-  beikeLastError = "";
-  beikeBlockedUntil = 0;
-  cache[key] = { ts: Date.now(), payload };
-  await writeBeikeCache(cache);
-  return { ok: true, ...payload };
+  return { ok: true, hit, html, city, cityId, at: new Date().toISOString() };
 }
 
 /* ============================================================
@@ -1215,6 +1183,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           blockedUntil: beikeBlockedUntil,
         })
       );
+    return true; // 异步响应
+  }
+
+  // 内容脚本解析完 PC 小区页后回写缓存（service worker 没有 DOMParser）。
+  if (msg.type === "beike-cache-put") {
+    cacheBeikePayload(msg.name, msg.city, msg.payload)
+      .then(sendResponse)
+      .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
     return true; // 异步响应
   }
 

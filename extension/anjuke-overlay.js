@@ -979,6 +979,93 @@
   }
 
   /**
+   * 贝壳 PC 小区页 HTML → 房源列表 + 单价区间。
+   * service worker 没有 DOMParser，所以解析在内容脚本做。结构（线上实测）：
+   *   ul.sellListContent > li.clear
+   *     .title a       标题 + /ershoufang/<id>.html
+   *     .houseInfo     高楼层(共11层) 3室2厅 | 112.18平米 | 南 北
+   *     .totalPrice span  "135"（万在后面的 <i> 里）
+   *     .unitPrice span   "12,035元/平"
+   *     .tag span         标签
+   */
+  function parseBeikeUnit(s) {
+    const str = String(s || "");
+    const n = Number(str.replace(/[^\d.]/g, ""));
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return /万/.test(str) ? Math.round(n * 10000) : Math.round(n);
+  }
+
+  function parseBeikePcListings(html, origin) {
+    let doc;
+    try {
+      doc = new DOMParser().parseFromString(String(html || ""), "text/html");
+    } catch (e) {
+      return { listings: [] };
+    }
+    let nodes = [...doc.querySelectorAll("ul.sellListContent > li")];
+    if (!nodes.length) nodes = [...doc.querySelectorAll("li.clear")];
+
+    const listings = [];
+    for (const li of nodes) {
+      const a = li.querySelector(".title a") || li.querySelector('a[href*="/ershoufang/"]');
+      if (!a) continue;
+      const infoNode = li.querySelector(".houseInfo");
+      const infoText = String((infoNode && infoNode.textContent) || "").replace(/\s+/g, " ").trim();
+      const segs = infoText.split("|").map((x) => x.trim()).filter(Boolean);
+      const rooms = (infoText.match(/(\d+室(?:\d+厅)?)/) || [])[1] || "";
+      const area = ((infoText.match(/([\d.]+\s*(?:平米|㎡|平))/) || [])[1] || "").trim();
+      const facing = segs.find((x) => /^[东南西北]/.test(x)) || "";
+
+      const totalSpan = li.querySelector(".totalPrice span");
+      const totalNode = li.querySelector(".totalPrice");
+      // 价格只留数字：PC 页的 "135" 本身就是 135 万，展示时统一补「万」
+      const total = String((totalSpan && totalSpan.textContent) || (totalNode && totalNode.textContent) || "")
+        .replace(/[^\d.]/g, "");
+
+      const unitSpan = li.querySelector(".unitPrice span");
+      const unit = String((unitSpan && unitSpan.textContent) || "").trim();
+      const tags = [...li.querySelectorAll(".tag span")].map((x) => x.textContent.trim()).filter(Boolean);
+      const href = a.getAttribute("href") || "";
+      let url = "";
+      try {
+        url = href ? new URL(href, origin).toString() : "";
+      } catch (e) {
+        url = "";
+      }
+
+      listings.push({
+        title: a.getAttribute("title") || a.textContent.trim(),
+        rooms,
+        area,
+        facing,
+        total,
+        unit,
+        unitNum: parseBeikeUnit(unit),
+        tags,
+        hot: tags.some((t) => t.includes("必看好房")),
+        url,
+      });
+    }
+
+    const nums = listings
+      .map((l) => l.unitNum)
+      .filter((n) => n != null)
+      .sort((a, b) => a - b);
+    const mid = nums.length
+      ? nums.length % 2
+        ? nums[(nums.length - 1) / 2]
+        : Math.round((nums[nums.length / 2 - 1] + nums[nums.length / 2]) / 2)
+      : null;
+
+    return {
+      listings,
+      unitMin: nums.length ? nums[0] : null,
+      unitMax: nums.length ? nums[nums.length - 1] : null,
+      unitMedian: mid,
+    };
+  }
+
+  /**
    * 贝壳二手房（第三方信息源）：小区名 → sug 找到贝壳小区 → 该小区在售二手房。
    * 全程走 background（content script fetch 会被页面源 CORS 拦，且需要
    * 浏览器登录态 cookie，由 background 的 DNR 规则 6 注入）。
@@ -1017,8 +1104,29 @@
         beikeStatus.blockedUntil = res.blockedUntil || 0;
         beikeStatus.lastError = res.lastError || "";
       } else {
-        rec.status = "ok";
-        rec.data = res;
+        let data = res;
+        // 未命中缓存时 background 返回 PC 小区页 HTML；service worker 没有
+        // DOMParser，所以解析在这里做，再把解析结果回写给 background 缓存。
+        if (res.html) {
+          const parsed = parseBeikePcListings(res.html, `https://${res.city}.ke.com`);
+          if (!parsed.listings.length) {
+            rec.status = "fail";
+            rec.note = `贝壳小区页里没有房源列表 —— 可能未登录 ${res.city}.ke.com / 被风控，或该小区暂无在售`;
+          } else {
+            data = {
+              ...res.hit,
+              ...parsed,
+              city: res.city,
+              totalCount: (res.hit && res.hit.count) || parsed.listings.length,
+              exact: res.hit && res.hit.exact,
+            };
+            askBackground("beike-cache-put", { name, city: res.city, payload: data });
+          }
+        }
+        if (rec.status !== "fail") {
+          rec.status = "ok";
+          rec.data = data;
+        }
       }
       log(
         `贝壳取数「${name}」（城市 ${CITY_SLUG || "默认 xa"}，${Date.now() - t0}ms）→`,

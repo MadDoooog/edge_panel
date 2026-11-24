@@ -1,10 +1,18 @@
 {
   "manifest_version": 3,
   "name": "edge-panel",
-  "version": "0.9.18",
+  "version": "0.9.19",
   "description": "新标签页悬浮仪表盘 — Cursor 费用 / 服务器磁盘 / Release Matrix 状态；DeepSeek 会话页持仓浮层；安居客地图找房户型浮层（含贝壳二手房比价）",
   "minimum_chrome_version": "101",
-  "permissions": ["storage", "cookies", "declarativeNetRequest", "nativeMessaging", "downloads", "clipboardWrite", "webRequest"],
+  "permissions": [
+    "storage",
+    "cookies",
+    "declarativeNetRequest",
+    "nativeMessaging",
+    "downloads",
+    "clipboardWrite",
+    "webRequest"
+  ],
   "host_permissions": [
     "*://cursor.com/*",
     "*://*.cursor.com/*",
@@ -29,20 +37,33 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chat.deepseek.com/*"],
-      "js": ["deepseek-overlay.js"],
+      "matches": [
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "deepseek-overlay.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.fang.anjuke.com/map/*"],
-      "js": ["anjuke-overlay.js"],
+      "matches": [
+        "https://*.fang.anjuke.com/map/*"
+      ],
+      "js": [
+        "anjuke-overlay.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["native/*", "config.example.yaml"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "native/*",
+        "config.example.yaml"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
